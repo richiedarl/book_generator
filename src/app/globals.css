@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #EDE6D6;
+  --paper-soft: #F6F1E5;
+  --paper-deep: #E3DAC3;
+  --ink: #22302B;
+  --ink-soft: #57655D;
+  --ink-faint: #8B9188;
+  --accent-gold: #C79A3D;
+  --accent-forest: #3B5D50;
+  --accent-rust: #A64B2A;
+  --line: #C9BFA8;
+  --display: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  --body: Charter, "Bitstream Charter", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-soft: var(--paper-soft);
+  --color-ink: var(--ink);
+  --color-accent-forest: var(--accent-forest);
+  --color-accent-gold: var(--accent-gold);
+  --color-accent-rust: var(--accent-rust);
+  --font-display: var(--display);
+  --font-body: var(--body);
+  --font-mono: var(--mono);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--body);}
+body{min-height:100vh;}
+
+/* Utilities matching book_agent.html */
+.bg-paper{background:var(--paper);}
+.bg-paper-soft{background:var(--paper-soft);}
+.bg-paper-deep{background:var(--paper-deep);}
+.text-ink{color:var(--ink);}
+.text-ink-soft{color:var(--ink-soft);}
+.text-ink-faint{color:var(--ink-faint);}
+.text-accent-forest{color:var(--accent-forest);}
+.text-accent-gold{color:var(--accent-gold);}
+.text-accent-rust{color:var(--accent-rust);}
+.font-display{font-family:var(--display);}
+.font-body{font-family:var(--body);}
+.font-mono{font-family:var(--mono);}
