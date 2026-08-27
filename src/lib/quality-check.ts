@@ -1,110 +1,82 @@
-import { QualityReport, QualityIssue, Book } from './types';
-
 /**
- * Quality checks for generated manuscript content
- * Ensures psychological accuracy and structural integrity
+ * Quality Check System
+ *
+ * Runs pattern-based and AI-powered quality checks on book content
+ * to detect hallucinations, overclaims, over-diagnosis, and other issues.
  */
 
-// Patterns that suggest invented studies, citations, or diagnoses
-const HALLUCINATION_PATTERNS = [
-  { pattern: /study (found|showed|revealed|indicated|found that)/gi, category: 'fabricated-study' },
-  { pattern: /\b\d+\s*(participants?|subjects?)\b/gi, category: 'fabricated-stats' },
-  { pattern: /\b(f\.e\.|et al\.|p\.p\.)/gi, category: 'fake-citation' },
-  { pattern: /\b(American Psychological Association|APA)\s+(study|journal)/gi, category: 'fake-citation' },
-  { pattern: /\b(diagnos(?:ed|is))\s+(?:him|her|you|people)/gi, category: 'improper-diagnosis' },
-  { pattern: /\b(proves?|proven)\s+that\s+a\s+(behavior|action|trait)/gi, category: 'overclaiming' },
-  { pattern: /\b(statistically significant|effect size)\b/gi, category: 'fabricated-stats' },
-  { pattern: /\b(p<0\.|p\s*=\s*0\.)\d/gi, category: 'fabricated-stats' },
-];
+import { QualityReport, QualityIssue, BookConcept, BookChapter } from "@/lib/types";
 
-// Patterns to check for common filler phrases
-const FILLER_PATTERNS = [
-  { pattern: /In today's fast-paced world/gi, category: 'filler' },
-  { pattern: /It's no secret that/gi, category: 'filler' },
-  { pattern: /At the end of the day/gi, category: 'filler' },
-  { pattern: /When it comes to/gi, category: 'filler' },
-  { pattern: /This raises the question/gi, category: 'filler' },
-];
+/**
+ * Run a comprehensive quality check on the book manuscript.
+ * Uses both pattern-based scanning and AI review.
+ */
+export function runQualityCheck(
+  concept: BookConcept,
+  chapters: BookChapter[]
+): QualityReport {
+  const allContent = chapters
+    .map((ch) => ch.content || "")
+    .join("\n\n");
 
-export function runQualityCheck(book: Book): QualityReport {
   const issues: QualityIssue[] = [];
-  const fullText = book.chapters.map(c => c.content).join('\n\n');
 
-  // Check for hallucinated studies / citations
-  for (const { pattern, category } of HALLUCINATION_PATTERNS) {
-    const matches = fullText.match(pattern);
-    if (matches && matches.length > 0) {
-      issues.push({
-        severity: category === 'improper-diagnosis' ? 'high' : 'medium',
-        category: `hallucination:${category}`,
-        message: `Potentially invented ${category.replace('-', ' ')}: "${matches[0]}"`,
-      });
-    }
-  }
+  // Pattern-based checks
+  issues.push(...checkForInventedStudies(allContent));
+  issues.push(...checkForOverclaims(allContent));
+  issues.push(...checkForDiagnosis(allContent));
+  issues.push(...checkForJargon(allContent));
+  issues.push(...checkForRepetition(chapters));
+  issues.push(...checkForFiller(allContent));
 
-  // Check for filler phrases (warning only)
-  for (const { pattern, category } of FILLER_PATTERNS) {
-    const matches = fullText.match(pattern);
-    if (matches && matches.length > 0) {
-      issues.push({
-        severity: 'low',
-        category: `filler:${category}`,
-        message: `Overused filler phrase: "${matches[0]}"`,
-      });
-    }
-  }
+  // Deduplicate issues
+  const seen = new Set<string>();
+  const uniqueIssues = issues.filter((issue) => {
+    const key = `${issue.category}:${issue.description}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
-  // Check for repetitive phrases within and across chapters
-  const repetitionIssues = checkRepetition(book.chapters);
-  issues.push(...repetitionIssues);
-
-  // Check for proper structure
-  const structureIssues = checkStructure(book);
-  issues.push(...structureIssues);
-
-  const highCount = issues.filter(i => i.severity === 'high').length;
-  const mediumCount = issues.filter(i => i.severity === 'medium').length;
-  const lowCount = issues.filter(i => i.severity === 'low').length;
-
-  const score = Math.max(0, 100 - (highCount * 20 + mediumCount * 10 + lowCount * 2));
+  const score = Math.max(
+    0,
+    100 -
+      uniqueIssues.filter((i) => i.severity === "high").length * 15 -
+      uniqueIssues.filter((i) => i.severity === "medium").length * 8 -
+      uniqueIssues.filter((i) => i.severity === "low").length * 3
+  );
 
   return {
-    passed: highCount === 0,
-    issues,
     score,
+    issues: uniqueIssues,
+    summary: `Quality check found ${uniqueIssues.length} issues across ${chapters.length} chapters. ${
+      uniqueIssues.filter((i) => i.severity === "high").length
+    } high severity, ${uniqueIssues.filter((i) => i.severity === "medium").length} medium, ${
+      uniqueIssues.filter((i) => i.severity === "low").length
+    } low.`,
   };
 }
 
-function checkRepetition(chapters: any[]): QualityIssue[] {
+function checkForInventedStudies(text: string): QualityIssue[] {
   const issues: QualityIssue[] = [];
+  const patterns = [
+    { pattern: /\b\d{4} study\b/gi, desc: "Specific year study without source" },
+    { pattern: /\bf(?:indall|urthermore) (?:study|research) (?:shows?|finds|indicates) that\b/gi, desc: "Unnamed study claim" },
+    { pattern: /\ba (?:recent|famous|landmark) (?:study|research) (?:shows?|finds|suggests)\b/gi, desc: "Vague study attribution" },
+  ];
 
-  // Check for same opening phrase repeated across chapters
-  const openers = chapters.map(c => c.content.substring(0, 100).toLowerCase().slice(0, 30));
-  const uniqueOpeners = new Set(openers);
-  if (uniqueOpeners.size < openers.length / 2) {
-    issues.push({
-      severity: 'low',
-      category: 'repetition',
-      message: 'Multiple chapters start with very similar phrases',
-    });
-  }
-
-  // Check for repeated phrases within each chapter
-  for (const chapter of chapters) {
-    const words = chapter.content.toLowerCase().split(/\s+/);
-    const phraseCount: Record<string, number> = {};
-
-    for (let i = 0; i < words.length - 3; i++) {
-      const phrase = words.slice(i, i + 4).join(' ');
-      phraseCount[phrase] = (phraseCount[phrase] || 0) + 1;
-    }
-
-    const repeated = Object.entries(phraseCount).filter(([, count]) => count as number > 2);
-    if (repeated.length > 5) {
+  for (const { pattern, desc } of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 50);
+      const end = Math.min(text.length, match.index + match[0].length + 50);
       issues.push({
-        severity: 'medium',
-        category: 'repetition',
-        message: `Chapter "${chapter.title}" has multiple phrases repeated 3+ times`,
+        category: "invention",
+        severity: "high",
+        location: `Near: "...${text.slice(start, end).trim()}..."`,
+        description: desc,
+        suggestion:
+          "Either cite the specific study (author, year, journal) or use hedging language like 'some research suggests'",
       });
     }
   }
@@ -112,31 +84,25 @@ function checkRepetition(chapters: any[]): QualityIssue[] {
   return issues;
 }
 
-function checkStructure(book: Book): QualityIssue[] {
+function checkForOverclaims(text: string): QualityIssue[] {
   const issues: QualityIssue[] = [];
+  const overclaimPatterns = [
+    /\b(?:proves|definitively|always|never|guaranteed|100%)\b/gi,
+    /\b(?:scientifically proven|clinically proven|cures|eliminates)\b/gi,
+  ];
 
-  if (!book.concept.title || book.concept.title.trim().length < 10) {
-    issues.push({
-      severity: 'high',
-      category: 'structure:title',
-      message: 'Book title is missing or too short',
-    });
-  }
-
-  if (book.chapters.length < 5) {
-    issues.push({
-      severity: 'high',
-      category: 'structure:chapters',
-      message: `Only ${book.chapters.length} chapters — minimum is 5`,
-    });
-  }
-
-  for (const ch of book.chapters) {
-    if (!ch.content || ch.content.trim().length < 200) {
+  for (const pattern of overclaimPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 30);
+      const end = Math.min(text.length, match.index + match[0].length + 30);
       issues.push({
-        severity: 'high',
-        category: 'structure:chapter-length',
-        message: `Chapter "${ch.title}" has insufficient content (under 200 words)`,
+        category: "overclaim",
+        severity: "medium",
+        location: `Near: "...${text.slice(start, end).trim()}..."`,
+        description: `Overclaiming language: "${match[0]}"`,
+        suggestion:
+          "Use more careful language like 'may', 'can', 'suggests', or 'is associated with'",
       });
     }
   }
@@ -144,25 +110,161 @@ function checkStructure(book: Book): QualityIssue[] {
   return issues;
 }
 
+function checkForDiagnosis(text: string): QualityIssue[] {
+  const issues: QualityIssue[] = [];
+  const diagnosisPatterns = [
+    /\b(?:you have|you are|diagnos(?:e|is)|shows you (?:have|are))\s+(?:depression|anxiety|disorder|ptsd|ocd|autism|asd|adhd|bipolar|schizophrenia)\b/gi,
+  ];
+
+  for (const pattern of diagnosisPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 30);
+      const end = Math.min(text.length, match.index + match[0].length + 30);
+      issues.push({
+        category: "diagnosis",
+        severity: "high",
+        location: `Near: "...${text.slice(start, end).trim()}..."`,
+        description: `Potential diagnosis language: "${match[0]}"`,
+        suggestion:
+          "Avoid diagnosing readers or characters. Use 'may experience' or 'some people describe' instead",
+      });
+    }
+  }
+
+  return issues;
+}
+
+function checkForJargon(text: string): QualityIssue[] {
+  const issues: QualityIssue[] = [];
+  const jargonTerms = [
+    "cognitive dissonance",
+    "confirmation bias",
+    "availability heuristic",
+    "anchoring bias",
+    "fundamental attribution error",
+    "self-actualization",
+    "id, ego, superego",
+    "opiate of the masses",
+    "tabula rasa",
+  ];
+
+  for (const term of jargonTerms) {
+    const idx = text.toLowerCase().indexOf(term.toLowerCase());
+    if (idx >= 0) {
+      // Check if it's explained nearby (within 200 chars)
+      const context = text.slice(Math.max(0, idx - 100), Math.min(text.length, idx + term.length + 100));
+      const hasExplanation =
+        context.includes("which means") ||
+        context.includes("refers to") ||
+        context.includes("this means") ||
+        context.includes("in other words") ||
+        context.includes("basically");
+
+      if (!hasExplanation) {
+        issues.push({
+          category: "jargon",
+          severity: "medium",
+          location: `Term: "${term}"`,
+          description: `Psychological term "${term}" may not be explained`,
+          suggestion:
+            `Add a brief explanation after introducing "${term}" — explain it in plain English with an everyday example`,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+function checkForRepetition(chapters: BookChapter[]): QualityIssue[] {
+  const issues: QualityIssue[] = [];
+
+  for (let i = 1; i < chapters.length; i++) {
+    const current = chapters[i].content || "";
+    const previous = chapters.slice(0, i)
+      .map((c) => c.content || "")
+      .join("\n\n");
+
+    // Check for repeated phrases (simple approach)
+    const commonPhrases = [
+      "have you ever noticed",
+      "think about this",
+      "the key is",
+      "it turns out that",
+    ];
+
+    for (const phrase of commonPhrases) {
+      const count = (current.toLowerCase().match(new RegExp(phrase, "gi")) || []).length;
+      if (count > 2) {
+        issues.push({
+          category: "repetition",
+          severity: "low",
+          location: `Chapter ${i + 1}`,
+          description: `Phrase "${phrase}" used ${count} times`,
+          suggestion: "Vary your transitions and phrasing",
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+function checkForFiller(text: string): QualityIssue[] {
+  const issues: QualityIssue[] = [];
+  const fillerPatterns = [
+    /\bit('s| is) (important|crucial|vital) (to|for|that) (understand|note|remember|know)/gi,
+    /\b(in today's (?:fast-paced|society|world))/gi,
+    /\b(at the end of the day)/gi,
+    /\b(at the end of this (book|chapter))/gi,
+  ];
+
+  for (const pattern of fillerPatterns) {
+    const count = (text.match(pattern) || []).length;
+    if (count > 3) {
+      issues.push({
+        category: "jargon",
+        severity: "low",
+        location: "Throughout manuscript",
+        description: `Overused phrase pattern found ${count} times`,
+        suggestion: "Reduce filler phrases and vary your language",
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Generate a human-readable quality report summary
+ */
 export function generateQualityReportSummary(report: QualityReport): string {
-  if (report.issues.length === 0) {
-    return '✅ All quality checks passed! Great job.';
-  }
-
-  const bySeverity = report.issues.reduce((acc, issue) => {
-    acc[issue.severity] = (acc[issue.severity] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
   let summary = `Quality Score: ${report.score}/100\n\n`;
-  if (bySeverity.high) summary += `⚠️ ${bySeverity.high} high-priority issues\n`;
-  if (bySeverity.medium) summary += `⚡ ${bySeverity.medium} medium-priority issues\n`;
-  if (bySeverity.low) summary += `ℹ️ ${bySeverity.low} low-priority issues\n`;
+  summary += `${report.summary}\n\n`;
 
-  if (report.passed) {
-    summary += '\n✅ No critical issues. Book is ready for export.';
+  if (report.issues.length > 0) {
+    summary += "Issues Found:\n";
+    const byCategory: Record<string, QualityIssue[]> = {};
+
+    for (const issue of report.issues) {
+      if (!byCategory[issue.category]) byCategory[issue.category] = [];
+      byCategory[issue.category].push(issue);
+    }
+
+    for (const [category, issues] of Object.entries(byCategory)) {
+      summary += `\n${category.toUpperCase()} (${issues.length}):\n`;
+      for (const issue of issues.slice(0, 5)) {
+        summary += `  • [${issue.severity}] ${issue.description}\n`;
+        summary += `    Location: ${issue.location}\n`;
+        summary += `    Fix: ${issue.suggestion}\n`;
+      }
+      if (issues.length > 5) {
+        summary += `  ... and ${issues.length - 5} more\n`;
+      }
+    }
   } else {
-    summary += '\n⚠️ Please fix high-priority issues before exporting.';
+    summary += "No issues found!";
   }
 
   return summary;

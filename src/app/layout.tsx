@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Marginalia — Psychology Book Writing Studio",
-  description: "Generate professionally formatted psychology books from an idea.",
+  title: "The Shelf — Book Writing Studio",
+  description: "AI-assisted book creation and publishing",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
