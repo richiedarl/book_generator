@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pkill -9 -f \"next\")",
+      "Bash(pkill -9 -f \"node\")",
+      "Bash(rm -rf .next && npm run dev 2>&1 & *)",
+      "Read(//c/Users/USER/AppData/Local/Temp/claude/C--Users-USER-Desktop-Client-side-psychology-book-builder/5757e4b0-6be4-46ee-b34c-4445ef450cba/tasks/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\USER\\Desktop\\Client side\\psychology-book-builder\\.next"
+    ]
+  }
+}
