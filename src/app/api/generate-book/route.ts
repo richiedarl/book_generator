@@ -57,6 +57,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check that Anthropic API key is configured before starting the pipeline
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKeys = process.env.ANTHROPIC_API_KEYS;
+    const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    const baseUrl = process.env.ANTHROPIC_BASE_URL;
+
+    const hasKey =
+      (apiKey && apiKey.trim().length > 0) ||
+      (apiKeys && apiKeys.split(",").filter((k: string) => k.trim()).length > 0) ||
+      (authToken && authToken.trim().length > 0 && baseUrl && baseUrl.trim().length > 0);
+
+    if (!hasKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Claude API key is not configured. Add ANTHROPIC_API_KEY (or ANTHROPIC_API_KEYS) to your environment variables. See .env.example for details.",
+        },
+        { status: 503 }
+      );
+    }
+
     // Set up SSE stream
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();

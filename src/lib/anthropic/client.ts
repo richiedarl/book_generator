@@ -9,18 +9,24 @@ class AnthropicClient {
 
   constructor() {
     const apiKeys = process.env.ANTHROPIC_API_KEYS?.split(',').filter(Boolean) ?? [];
-    if (apiKeys.length === 0) {
-      // Fall back to single key
-      const singleKey = process.env.ANTHROPIC_API_KEY;
-      if (singleKey) {
-        this.clients = [new Anthropic({ apiKey: singleKey })];
-      } else {
-        console.warn('⚠️  No ANTHROPIC_API_KEYS or ANTHROPIC_API_KEY found in environment');
-      }
-    } else {
+    const singleKey = process.env.ANTHROPIC_API_KEY;
+    const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    const baseUrl = process.env.ANTHROPIC_BASE_URL;
+
+    if (apiKeys.length > 0) {
       this.clients = apiKeys.map(
         (key) => new Anthropic({ apiKey: key.trim() })
       );
+    } else if (singleKey && singleKey.trim().length > 0) {
+      this.clients = [new Anthropic({ apiKey: singleKey })];
+    } else if (authToken && authToken.trim().length > 0 && baseUrl && baseUrl.trim().length > 0) {
+      // Support proxy-based auth (e.g., Claude Code local proxy)
+      this.clients = [new Anthropic({
+        apiKey: authToken,
+        baseURL: baseUrl,
+      })];
+    } else {
+      console.warn('⚠️  No ANTHROPIC_API_KEYS, ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN+BASE_URL found in environment');
     }
 
     // Use configurable model, defaulting to Claude Opus 5

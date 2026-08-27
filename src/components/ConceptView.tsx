@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BookConcept, BookConfig } from "@/lib/types";
 import { useBook } from "@/context/BookContext";
 
@@ -12,11 +12,35 @@ interface ConceptViewProps {
 
 export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
   const { actions } = useBook();
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [claudeAvailable, setClaudeAvailable] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  // Check Claude availability when the component mounts
+  useEffect(() => {
+    checkClaude();
+  }, []);
+
+  async function checkClaude() {
+    setChecking(true);
+    try {
+      const response = await fetch("/api/check-claude");
+      if (!response.ok) {
+        setClaudeAvailable(false);
+        return;
+      }
+      const data = await response.json();
+      setClaudeAvailable(data.claude?.configured ?? false);
+    } catch {
+      setClaudeAvailable(false);
+    } finally {
+      setChecking(false);
+    }
+  }
 
   if (!concept) {
-    // Concept hasn't been generated yet — trigger generation
-    // This handles the case where config was saved but concept wasn't developed yet
+    // Concept hasn't been generated yet — show the config summary and generate button
+    const isReady = !!canGenerate();
+
     return (
       <div>
         <div className="eyebrow">Ready to Build</div>
@@ -25,28 +49,65 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
           <p className="sub">
             {config.topic || config.subject || "Your book idea"}
           </p>
-          {config.bookCategory && (
-            <p><b>Category:</b> {config.bookCategory}</p>
+
+          <div className="meta-grid">
+            {config.bookCategory && (
+              <div><b>Category:</b> {config.bookCategory}</div>
+            )}
+            {config.targetAudience && (
+              <div><b>Audience:</b> {config.targetAudience}</div>
+            )}
+            {config.writingStyle && (
+              <div><b>Style:</b> {config.writingStyle}</div>
+            )}
+            {config.tone && (
+              <div><b>Tone:</b> {config.tone}</div>
+            )}
+            {config.desiredLength && (
+              <div><b>Length:</b> {config.desiredLength}</div>
+            )}
+            {config.additionalInstructions && (
+              <div><b>Notes:</b> {config.additionalInstructions}</div>
+            )}
+          </div>
+
+          {!isReady && (
+            <div className="error-box">
+              <p>I still need two things to generate your book:</p>
+              <p>1. A Topic or Book Idea</p>
+              <p>2. A Category / Genre</p>
+              <p style={{ marginTop: "10px", fontSize: "12px" }}>
+                Fill those in and click "Start Over" to return to the form.
+              </p>
+            </div>
           )}
-          {config.targetAudience && (
-            <p><b>Audience:</b> {config.targetAudience}</p>
+
+          {claudeAvailable === false && !checking && (
+            <div className="error-box">
+              ⚠️ <b>Claude is not configured.</b> Add an <code>ANTHROPIC_API_KEY</code>
+              to your environment to generate books. See <code>.env.example</code> for details.
+            </div>
           )}
-          {config.writingStyle && (
-            <p><b>Style:</b> {config.writingStyle}</p>
-          )}
-          {config.tone && (
-            <p><b>Tone:</b> {config.tone}</p>
-          )}
-          {config.desiredLength && (
-            <p><b>Length:</b> {config.desiredLength}</p>
-          )}
-          {config.additionalInstructions && (
-            <p><b>Notes:</b> {config.additionalInstructions}</p>
+
+          {claudeAvailable === null && checking && (
+            <p style={{ fontSize: "13px", color: "var(--ink-soft)" }}>Checking Claude availability…</p>
           )}
         </div>
+
         <div className="row">
-          <button className="btn" onClick={onGenerate}>
-            Generate Book
+          <button
+            className="btn"
+            onClick={onGenerate}
+            disabled={!isReady || !claudeAvailable || checking}
+            title={
+              !isReady
+                ? "Fill in topic and category first"
+                : claudeAvailable === false
+                ? "Claude API key not configured"
+                : undefined
+            }
+          >
+            {checking ? "Checking…" : claudeAvailable === false ? "Claude Not Configured" : "Generate Book"}
           </button>
           <button className="btn-ghost" onClick={() => actions.startNewBook()}>
             Start Over
@@ -58,13 +119,17 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
     );
   }
 
+  function canGenerate(): boolean {
+    return !!(config.topic || config.subject) && !!config.bookCategory;
+  }
+
   const handleGenerate = () => {
     onGenerate();
   };
 
   return (
     <div>
-      <div className="eyebear">Book Concept</div>
+      <div className="eyebrow">Book Concept</div>
       <div className="concept-box">
         <h2>{concept.title}</h2>
         <p className="sub">{concept.subtitle}</p>
@@ -93,8 +158,12 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
       </div>
 
       <div className="row">
-        <button className="btn" onClick={handleGenerate}>Generate Book</button>
-        <button className="btn-ghost" onClick={() => actions.startNewBook()}>Start Over</button>
+        <button className="btn" onClick={handleGenerate} disabled={checking}>
+          Generate Book
+        </button>
+        <button className="btn-ghost" onClick={() => actions.startNewBook()}>
+          Start Over
+        </button>
       </div>
 
       <style jsx>{styleSheet}</style>
@@ -103,7 +172,7 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
 }
 
 const styleSheet = `
-  .eyebear {
+  .eyebear, .eyebrow {
     font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 0.16em;
@@ -179,6 +248,44 @@ const styleSheet = `
     color: var(--ink);
     font-family: var(--body);
     font-weight: 700;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .meta-grid div b {
+    color: var(--ink-soft);
+  }
+
+  @media (max-width: 640px) {
+    .meta-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .error-box {
+    background: #fef0f0;
+    border: 1px solid #fcc;
+    color: var(--accent-rust);
+    padding: 14px 16px;
+    border-radius: 6px;
+    margin-top: 16px;
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+
+  .error-box code {
+    background: var(--paper-deep);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
   }
 
   .chapter-list {
