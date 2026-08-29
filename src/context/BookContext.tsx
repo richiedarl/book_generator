@@ -11,6 +11,7 @@ import {
   ExportFormat,
   JobStatus,
   JobStage,
+  KindleQAReport,
 } from "@/lib/types";
 
 export interface BookContextState {
@@ -41,6 +42,7 @@ export interface BookContextState {
 
   // Quality
   qualityReport: QualityReport | null;
+  kindleQAReport: KindleQAReport | null;
 
   // Google Drive
   driveStatus: { authorized: boolean; folderId?: string; folderUrl?: string; accessToken?: string; refreshToken?: string; expiresAt?: number } | null;
@@ -66,6 +68,7 @@ export interface BookContextActions {
   setExportFormats: (formats: ExportFormat[]) => void;
   setDownloadUrl: (format: string, url: string) => void;
   setQualityReport: (report: QualityReport | null) => void;
+  setKindleQAReport: (report: KindleQAReport | null) => void;
   setDriveStatus: (status: { authorized: boolean; folderId?: string; folderUrl?: string; accessToken?: string; refreshToken?: string; expiresAt?: number } | null) => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;
@@ -96,6 +99,7 @@ const initialState: BookContextState = {
   ],
   downloadUrls: {},
   qualityReport: null,
+  kindleQAReport: null,
   driveStatus: null,
   isLoading: false,
   loadingMessage: "",
@@ -172,6 +176,10 @@ export function BookProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, qualityReport }));
   }, []);
 
+  const setKindleQAReport = useCallback((kindleQAReport: KindleQAReport | null) => {
+    setState((s) => ({ ...s, kindleQAReport }));
+  }, []);
+
   const setDriveStatus = useCallback((driveStatus: { authorized: boolean; folderId?: string; folderUrl?: string; accessToken?: string; refreshToken?: string; expiresAt?: number } | null) => {
     setState((s) => ({ ...s, driveStatus }));
   }, []);
@@ -221,11 +229,23 @@ export function BookProvider({ children }: { children: ReactNode }) {
 
       setState((s) => ({ ...s, jobStages: stages }));
 
+      // Get access token from session if available
+      let accessToken: string | undefined;
+      try {
+        const response = await fetch("/api/auth/me");
+        const data = await response.json();
+        if (data.user?.accessToken) {
+          accessToken = data.user.accessToken;
+        }
+      } catch {
+        // Session not available, continue without token
+      }
+
       try {
         const response = await fetch("/api/generate-book", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config, concept }),
+          body: JSON.stringify({ config, concept, accessToken }),
         });
 
         if (!response.ok) {
@@ -402,6 +422,7 @@ export function BookProvider({ children }: { children: ReactNode }) {
     setExportFormats,
     setDownloadUrl,
     setQualityReport,
+    setKindleQAReport,
     setDriveStatus,
     setLoading,
     setError,

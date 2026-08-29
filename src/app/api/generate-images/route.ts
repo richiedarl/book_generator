@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { BookConcept, BookChapter, BookConfig } from "@/lib/types";
+import { BookConcept, BookChapter, BookConfig, ImageInstruction } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 
 const IMAGE_CACHE: Record<string, { url: string; prompt: string; alt: string; placement: string }> = {};
@@ -16,7 +16,12 @@ const IMAGE_CACHE: Record<string, { url: string; prompt: string; alt: string; pl
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { concept, chapters, visualStyle }: { concept: BookConcept; chapters: BookChapter[]; visualStyle: string } = body;
+    const { concept, chapters, visualStyle, imageInstructions }: {
+      concept: BookConcept;
+      chapters: BookChapter[];
+      visualStyle: string;
+      imageInstructions?: ImageInstruction[];
+    } = body;
 
     if (!concept || !chapters) {
       return NextResponse.json({ error: "Missing required fields: concept, chapters" }, { status: 400 });
@@ -32,7 +37,12 @@ export async function POST(request: NextRequest) {
 
     const { generateBookImages } = await import("@/lib/image-generation");
     // storeImage is imported internally by generateBookImages
-    const images = await generateBookImages(concept, chapters, visualStyle || "warm, inviting, semi-realistic illustration style");
+    const images = await generateBookImages(
+      concept,
+      chapters,
+      visualStyle || "warm, inviting, semi-realistic illustration style",
+      imageInstructions || []
+    );
 
     // Cache image metadata for the client
     images.forEach((img) => {

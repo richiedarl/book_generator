@@ -18,6 +18,7 @@ import { generateBook, ProgressCallback } from "@/lib/book-orchestrator";
 import { BookConfig, BookConcept } from "@/lib/types";
 import { anthropicClient } from "@/lib/anthropic/client";
 import { MASTER_SYSTEM } from "@/lib/prompts/master-system";
+import { isTokenRequired, validateAccessToken, getSessionUser } from "@/lib/auth";
 
 const CONCEPT_PROMPT_SUFFIX = `You are a nonfiction book development editor. Your job is to take a book configuration and shape it into a compelling book concept with a clear structure. You respond only with valid JSON, nothing else.
 
@@ -48,13 +49,53 @@ Respond ONLY with a raw JSON object, no markdown fences, no preamble, in exactly
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { config, concept }: { config: BookConfig; concept?: BookConcept } = body;
+    const { config, concept, accessToken }: { config: BookConfig; concept?: BookConcept; accessToken?: string } = body;
 
     if (!config) {
       return NextResponse.json(
         { error: "Missing required field: config" },
         { status: 400 }
       );
+    }
+
+    // Check token requirement
+    const tokenRequired = isTokenRequired();
+
+    if (tokenRequired) {
+      // Try to get token from request body or from session
+      let token = accessToken;
+
+      if (!token) {
+        // Check session cookie
+        const sessionUser = await getSessionUser();
+        if (sessionUser?.accessToken) {
+          token = sessionUser.accessToken;
+        }
+      }
+
+      if (!token) {
+        return NextResponse.json(
+          {
+            error: "Access token is required. Please provide a valid access token or log in as an admin.",
+            tokenRequired: true,
+          },
+          { status: 401 }
+        );
+      }
+
+      const user = validateAccessToken(token);
+      if (!user) {
+        return NextResponse.json(
+          {
+            error: "Invalid access token",
+            tokenRequired: true,
+          },
+          { status: 401 }
+        );
+      }
+
+      // Optionally attach user info to config for tracking
+      config.author = config.author || user.name;
     }
 
     // Check that Anthropic API key is configured before starting the pipeline

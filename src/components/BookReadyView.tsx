@@ -1,17 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useBook } from "@/context/BookContext";
 import { TranslationPanel } from "./TranslationPanel";
+import { NextBookRecommendation } from "./NextBookRecommendation";
+import { BookChapter, ImageInstruction } from "@/lib/types";
 
 export function BookReadyView() {
   const { state, actions } = useBook();
-  const { book, config, concept, chapters, qualityReport, gemini, downloadUrls, exportFormats } = state;
+  const { book, config, concept, chapters, qualityReport, gemini, downloadUrls, exportFormats, kindleQAReport } = state;
   const [isGeneratingImages, setIsGeneratingImages] = useState(false);
   const [imageGenError, setImageGenError] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<any[]>([]);
   const [isUploadingDrive, setIsUploadingDrive] = useState(false);
   const [driveUploadStatus, setDriveUploadStatus] = useState<string | null>(null);
+
+  // Track individual image generation states
+  const [imageInstructions, setImageInstructions] = useState<ImageInstruction[]>([]);
+  const [imageStates, setImageStates] = useState<Record<string, { state: string; progress?: number }>>({});
 
   const handleDownload = (format: string) => {
     const url = downloadUrls[format];
@@ -22,7 +28,70 @@ export function BookReadyView() {
 
   const canGenerateImages = gemini.imageGenerationAvailable;
 
-  const generateImages = async () => {
+  // Load image instructions from book state
+  useEffect(() => {
+    if (book?.imageInstructions && book.imageInstructions.length > 0) {
+      setImageInstructions(book.imageInstructions);
+      // Initialize states
+      const initialStates: Record<string, { state: string }> = {};
+      book.imageInstructions.forEach((inst: ImageInstruction) => {
+        initialStates[inst.id] = { state: inst.state || "planned" };
+      });
+      setImageStates(initialStates);
+    }
+  }, [book]);
+
+  const generateSingleImage = async (instruction: ImageInstruction) => {
+    if (!concept || !chapters || chapters.length === 0) return;
+
+    setImageStates(prev => ({
+      ...prev,
+      [instruction.id]: { state: "generating", progress: 0 }
+    }));
+    setImageGenError(null);
+
+    try {
+      const response = await fetch("/api/generate-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          concept,
+          chapters,
+          visualStyle: config?.visualStyle || "warm, inviting, semi-realistic illustration style",
+          imageInstructions: [instruction],
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Image generation failed");
+      }
+
+      const data = await response.json();
+      if (data.success && data.images && data.images.length > 0) {
+        const newImage = data.images[0];
+        setGeneratedImages(prev => [...prev, newImage]);
+        setImageStates(prev => ({
+          ...prev,
+          [instruction.id]: { state: "generated", progress: 100 }
+        }));
+      } else if (data.error) {
+        throw new Error(data.error);
+      }
+    } catch (err: any) {
+      setImageStates(prev => ({
+        ...prev,
+        [instruction.id]: { state: "failed", progress: 0 }
+      }));
+      setImageGenError(`Failed to generate ${instruction.id}: ${err.message}`);
+    }
+  };
+
+  const retryImage = (instruction: ImageInstruction) => {
+    generateSingleImage(instruction);
+  };
+
+  const generateAllImages = async () => {
     if (!concept || !chapters || chapters.length === 0) return;
 
     setIsGeneratingImages(true);
@@ -36,6 +105,7 @@ export function BookReadyView() {
           concept,
           chapters,
           visualStyle: config?.visualStyle || "warm, inviting, semi-realistic illustration style",
+          imageInstructions: imageInstructions,
         }),
       });
 
@@ -47,6 +117,12 @@ export function BookReadyView() {
       const data = await response.json();
       if (data.success && data.images) {
         setGeneratedImages(data.images);
+        // Update all states to generated
+        const allGenerated: Record<string, { state: string; progress: number }> = {};
+        imageInstructions.forEach(inst => {
+          allGenerated[inst.id] = { state: "generated", progress: 100 };
+        });
+        setImageStates(allGenerated);
       } else if (data.error) {
         setImageGenError(data.error);
       }
@@ -120,7 +196,30 @@ export function BookReadyView() {
                   <li key={i}>
                     <b>[{issue.severity}] {issue.category}</b>: {issue.description}
                     <br />
-                    <span className="hint">→ {issue.suggestion}</span>
+                    <span className="hint">{issue.suggestion}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Kindle QA Report */}
+      {kindleQAReport && (
+        <div className="quality-summary kindle-qa">
+          <div className="quality-score">
+            Kindle QA: {kindleQAReport.passed ? "PASSED" : "NEEDS REVIEW"} — Score: {kindleQAReport.score}/100
+          </div>
+          <p className="quality-text">{kindleQAReport.summary}</p>
+          {kindleQAReport.checks.length > 0 && (
+            <details className="quality-details">
+              <summary>View {kindleQAReport.checks.length} checks</summary>
+              <ul>
+                {kindleQAReport.checks.map((check, i) => (
+                  <li key={i} style={{ color: check.passed ? "var(--accent-forest)" : check.severity === "critical" ? "#a00" : "#a80" }}>
+                    <b>[{check.severity.toUpperCase()}] {check.category} — {check.name}</b>: {check.message}
+                    {check.details && <br />}{check.details && <span className="hint">{check.details}</span>}
                   </li>
                 ))}
               </ul>
@@ -250,23 +349,89 @@ export function BookReadyView() {
               disabled
               title="Gemini API key not configured. Add GEMINI_API_KEY to enable image generation."
             >
-              Generate Cover &amp; Images
+              Generate Cover & Images
             </button>
           )}
 
-          {canGenerateImages && (
+          {canGenerateImages && imageInstructions.length > 0 && (
+            <div className="image-generation-section">
+              <h4>Image Generation</h4>
+              <p className="hint-text">Click individual images to generate, or generate all at once.</p>
+              <div className="image-list">
+                {imageInstructions.map((inst) => {
+                  const state = imageStates[inst.id]?.state || "planned";
+                  const isGenerating = state === "generating";
+                  const isGenerated = state === "generated";
+                  const isFailed = state === "failed";
+                  const progress = imageStates[inst.id]?.progress || 0;
+
+                  return (
+                    <div key={inst.id} className="image-item">
+                      <div className="image-info">
+                        <span className={`image-state-icon ${state}`}>
+                          {state === "planned" && "⏳"}
+                          {state === "generating" && "⏳"}
+                          {state === "generated" && "✅"}
+                          {state === "failed" && "❌"}
+                        </span>
+                        <span className="image-label">{inst.id} ({inst.placement})</span>
+                        <span className="image-purpose">{inst.purpose}</span>
+                      </div>
+                      <div className="image-actions">
+                        {isGenerating && (
+                          <div className="progress-bar-small">
+                            <div className="progress-fill" style={{ width: `${progress}%` }} />
+                          </div>
+                        )}
+                        {state === "planned" && (
+                          <button
+                            className="btn btn-xs"
+                            onClick={() => generateSingleImage(inst)}
+                            disabled={isGeneratingImages}
+                          >
+                            Generate
+                          </button>
+                        )}
+                        {state === "failed" && (
+                          <button
+                            className="btn btn-xs btn-retry"
+                            onClick={() => retryImage(inst)}
+                            disabled={isGeneratingImages}
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {isGenerated && (
+                          <span className="generated-badge">Generated</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                className="btn btn-sm"
+                onClick={generateAllImages}
+                disabled={isGeneratingImages}
+              >
+                {isGeneratingImages ? "Generating All..." : "Generate All Images"}
+              </button>
+            </div>
+          )}
+
+          {canGenerateImages && imageInstructions.length === 0 && (
             <button
               className="btn btn-sm btn-ghost"
-              onClick={generateImages}
+              onClick={generateAllImages}
               disabled={isGeneratingImages}
             >
-              {isGeneratingImages ? "Generating..." : "Generate Cover &amp; Images"}
+              {isGeneratingImages ? "Generating..." : "Generate Cover & Images"}
             </button>
           )}
 
           {imageGenError && (
             <p className="hint-text" style={{ color: "#a00" }}>
-              ⚠️ {imageGenError}
+              ⚠ {imageGenError}
             </p>
           )}
 
@@ -277,14 +442,14 @@ export function BookReadyView() {
           )}
 
           {driveUploadStatus && (
-            <p className={driveUploadStatus.startsWith("✅") ? "success-text" : "hint-text"} style={driveUploadStatus.startsWith("✅") ? { color: "var(--accent-forest)" } : driveUploadStatus.startsWith("⚠️") ? { color: "#a00" } : {}}>
+            <p className={driveUploadStatus.startsWith("✅") ? "success-text" : "hint-text"} style={driveUploadStatus.startsWith("✅") ? { color: "var(--accent-forest)" } : driveUploadStatus.startsWith("⚠") ? { color: "#a00" } : {}}>
               {driveUploadStatus}
             </p>
           )}
 
           {isUploadingDrive && (
             <p className="hint-text">
-              ⏳ Uploading to Google Drive...
+              Uploading to Google Drive...
             </p>
           )}
 
@@ -310,6 +475,8 @@ export function BookReadyView() {
       </div>
 
       <TranslationPanel />
+
+      <NextBookRecommendation />
 
       <style jsx>{`
         .ready-view {
@@ -350,6 +517,10 @@ export function BookReadyView() {
           border: 1px solid var(--line);
           padding: 16px 20px;
           margin-bottom: 24px;
+        }
+
+        .quality-summary.kindle-qa {
+          border-color: var(--accent-forest);
         }
 
         .quality-score {
@@ -449,6 +620,114 @@ export function BookReadyView() {
           border-radius: 3px;
           font-family: var(--mono);
           font-size: 11px;
+        }
+
+        /* Image Generation Styles */
+        .image-generation-section {
+          background: var(--paper-soft);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          padding: 16px;
+          margin-top: 12px;
+        }
+
+        .image-generation-section h4 {
+          font-family: var(--mono);
+          font-size: 10px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--accent-forest);
+          margin: 0 0 8px;
+        }
+
+        .image-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin: 12px 0;
+        }
+
+        .image-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px;
+          background: var(--paper);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          gap: 12px;
+        }
+
+        .image-info {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .image-state-icon {
+          font-size: 18px;
+          width: 28px;
+          text-align: center;
+        }
+
+        .image-label {
+          font-family: var(--mono);
+          font-size: 11px;
+          color: var(--ink);
+          font-weight: 600;
+        }
+
+        .image-purpose {
+          font-size: 12px;
+          color: var(--ink-soft);
+          max-width: 200px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .image-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .progress-bar-small {
+          width: 80px;
+          height: 6px;
+          background: var(--line);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+
+        .progress-fill {
+          height: 100%;
+          background: var(--accent-forest);
+          transition: width 0.3s ease;
+        }
+
+        .btn-xs {
+          font-size: 9px;
+          padding: 4px 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+
+        .btn-retry {
+          background: var(--accent-rust);
+          color: white;
+        }
+
+        .btn-retry:hover {
+          opacity: 0.9;
+        }
+
+        .generated-badge {
+          font-size: 10px;
+          color: var(--accent-forest);
+          font-weight: 500;
         }
       `}</style>
     </div>

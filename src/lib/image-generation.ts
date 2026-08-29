@@ -5,7 +5,7 @@
  * The API key is loaded from server-side environment variables only.
  */
 
-import { BookConcept, BookChapter, BookImage } from "@/lib/types";
+import { BookConcept, BookChapter, BookImage, ImageInstruction } from "@/lib/types";
 import { storeImage } from "@/app/api/images/[id]/route";
 import { v4 as uuidv4 } from "uuid";
 
@@ -16,40 +16,60 @@ interface GeminiImageResult {
 }
 
 /**
- * Generate all book images (cover + chapter illustrations)
+ * Generate all book images (cover + chapter illustrations) using Claude's image instructions
  */
 export async function generateBookImages(
   concept: BookConcept,
   chapters: BookChapter[],
   visualStyle: string,
-  onProgress?: (event: { type: string; stage?: string; message?: string }) => void
+  imageInstructions: ImageInstruction[],
+  onProgress?: (event: { type: string; stage?: string; message?: string; instructionId?: string; state?: string }) => void
 ): Promise<BookImage[]> {
   const images: BookImage[] = [];
 
-  // 1. Generate cover image
-  onProgress?.({ type: "stage", stage: "Cover", message: "Generating cover artwork..." });
-  const coverImage = await generateCoverImage(concept, visualStyle);
-  images.push(coverImage);
+  if (!imageInstructions || imageInstructions.length === 0) {
+    return images;
+  }
 
-  // 2. Generate chapter illustrations (1-2 per chapter, where appropriate)
-  let imgIndex = 1;
-  for (let i = 0; i < chapters.length; i++) {
-    const ch = chapters[i];
-    if (!ch.content) continue;
-
-    // Generate 1-2 images per chapter based on content relevance
-    const chapterImagesCount = determineImageCount(ch);
-
-    for (let j = 0; j < chapterImagesCount; j++) {
+  // Process each image instruction
+  for (const instruction of imageInstructions) {
+    try {
       onProgress?.({
         type: "stage",
-        stage: `Chapter Image ${imgIndex + 1}`,
-        message: `Generating image for Chapter ${i + 1}...`,
+        stage: `Image: ${instruction.id}`,
+        message: `Generating ${instruction.placement} image...`,
+        instructionId: instruction.id,
+        state: "generating",
       });
 
-      const img = await generateChapterImage(concept, ch, i, j, visualStyle);
-      images.push(img);
-      imgIndex++;
+      let image: BookImage;
+
+      if (instruction.placement === "cover") {
+        image = await generateImageFromInstruction(instruction, concept, visualStyle);
+      } else {
+        const chapterIndex = instruction.chapterIndex ?? 0;
+        image = await generateImageFromInstruction(instruction, concept, visualStyle, chapters[chapterIndex]);
+      }
+
+      images.push(image);
+
+      onProgress?.({
+        type: "stage",
+        stage: `Image: ${instruction.id}`,
+        message: `Generated ${instruction.placement} image successfully`,
+        instructionId: instruction.id,
+        state: "generated",
+      });
+    } catch (err: any) {
+      console.error(`Failed to generate image ${instruction.id}:`, err);
+      onProgress?.({
+        type: "stage",
+        stage: `Image: ${instruction.id}`,
+        message: `Failed to generate image: ${err.message}`,
+        instructionId: instruction.id,
+        state: "failed",
+      });
+      // Continue with other images
     }
   }
 
@@ -57,11 +77,13 @@ export async function generateBookImages(
 }
 
 /**
- * Generate a book cover image using Gemini
+ * Generate an image from a specific instruction
  */
-async function generateCoverImage(
+async function generateImageFromInstruction(
+  instruction: ImageInstruction,
   concept: BookConcept,
-  visualStyle: string
+  visualStyle: string,
+  chapter?: BookChapter
 ): Promise<BookImage> {
   const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash";
   const apiKey = process.env.GEMINI_API_KEY;
@@ -70,10 +92,11 @@ async function generateCoverImage(
     throw new Error("GEMINI_API_KEY not configured");
   }
 
-  const prompt = buildCoverPrompt(concept, visualStyle);
+  // Use the prompt from the instruction (created by Claude)
+  const prompt = instruction.prompt;
 
   const image = await callGeminiImageGeneration(prompt, modelName);
-  const id = uuidv4();
+  const id = instruction.id || uuidv4();
 
   // Store the image for serving
   storeImage(id, image.base64, image.mimeType);
@@ -82,42 +105,9 @@ async function generateCoverImage(
     id,
     url: `/api/images/${id}`,
     prompt,
-    alt: `${concept.title} book cover`,
-    placement: "cover",
-  };
-}
-
-/**
- * Generate a chapter illustration using Gemini
- */
-async function generateChapterImage(
-  concept: BookConcept,
-  chapter: BookChapter,
-  chapterIndex: number,
-  imageIndex: number,
-  visualStyle: string
-): Promise<BookImage> {
-  const modelName = process.env.GEMINI_MODEL || "gemini-2.0-flash";
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY not configured");
-  }
-
-  const prompt = buildChapterImagePrompt(concept, chapter, chapterIndex, imageIndex, visualStyle);
-  const image = await callGeminiImageGeneration(prompt, modelName);
-  const id = uuidv4();
-
-  // Store the image for serving
-  storeImage(id, image.base64, image.mimeType);
-
-  return {
-    id,
-    url: `/api/images/${id}`,
-    prompt,
-    alt: `${chapter.title} illustration`,
-    placement: "chapter-start",
-    chapterIndex,
+    alt: instruction.description,
+    placement: instruction.placement,
+    chapterIndex: instruction.chapterIndex,
   };
 }
 

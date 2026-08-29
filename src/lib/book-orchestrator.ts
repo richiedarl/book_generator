@@ -18,7 +18,8 @@ import { anthropicClient } from "@/lib/anthropic/client";
 import { getChapterPrompt } from "@/lib/prompts/chapter-prompt";
 import { MASTER_SYSTEM } from "@/lib/prompts/master-system";
 import { QUALITY_CHECK_SYSTEM } from "@/lib/prompts";
-import { BookConfig, BookConcept, BookChapter, QualityReport, BookImage } from "@/lib/types";
+import { buildKindleQAPrompt, parseKindleQAResponse, KindleQAReport, KINDLE_QA_SYSTEM } from "@/lib/prompts/kindle-qa";
+import { BookConfig, BookConcept, BookChapter, QualityReport, BookImage, ImageInstruction } from "@/lib/types";
 import { markdownToHtml } from "@/lib/ebook-generator";
 
 export interface ProgressCallback {
@@ -56,13 +57,18 @@ export async function generateBook(
     const chapters = await generateAllChapters(concept, plan, onProgress);
     onProgress({ type: "stage_complete", stage: "Manuscript Generation" });
 
-    // Stage 3: Image Generation (optional - controlled by config.imageGeneration)
+    // Stage 3: Generate Image Instructions (Claude creates prompts for all images)
+    onProgress({ type: "stage", stage: "Image Planning", status: "running" });
+    const imageInstructions = await generateImageInstructions(config, concept, chapters, config.numberOfImages || 0, onProgress);
+    onProgress({ type: "stage_complete", stage: "Image Planning" });
+
+    // Stage 4: Image Generation (optional - controlled by config.imageGeneration)
     let images: BookImage[] = [];
-    if (config.imageGeneration?.enabled && config.imageGeneration?.provider === "gemini") {
+    if (config.imageGeneration?.enabled && (config.imageGeneration?.provider === "gemini" || config.imageGeneration?.provider === "nano-banana")) {
       onProgress({ type: "stage", stage: "Image Generation", status: "running" });
       try {
         const { generateBookImages } = await import("@/lib/image-generation");
-        images = await generateBookImages(concept, chapters, config.visualStyle, onProgress as any);
+        images = await generateBookImages(concept, chapters, config.visualStyle, imageInstructions, onProgress as any);
         onProgress({ type: "stage_complete", stage: "Image Generation" });
       } catch (imgErr: any) {
         // Don't fail the whole job — images are optional
@@ -71,18 +77,23 @@ export async function generateBook(
       }
     }
 
-    // Stage 4: Editing / QA
+    // Stage 5: Editing / QA
     onProgress({ type: "stage", stage: "Editing / QA", status: "running" });
     const qualityReport = await runQualityCheck(concept, chapters);
     onProgress({ type: "quality", qualityReport });
     onProgress({ type: "stage_complete", stage: "Editing / QA" });
 
-    // Stage 5: Formatting
+    // Stage 6: Formatting
     onProgress({ type: "stage", stage: "Formatting", status: "running" });
     const formattedChapters = await formatChapters(concept, chapters, images);
     onProgress({ type: "stage_complete", stage: "Formatting" });
 
-    // Stage 6: Export
+    // Stage 7: Kindle QA Validation
+    onProgress({ type: "stage", stage: "Kindle QA", status: "running" });
+    const kindleQAReport = await runKindleQA(config, concept, formattedChapters);
+    onProgress({ type: "stage_complete", stage: "Kindle QA" });
+
+    // Stage 8: Export
     onProgress({ type: "stage", stage: "Export", status: "running" });
     const exports = await generateExports(concept, formattedChapters, config, onProgress);
     onProgress({ type: "stage_complete", stage: "Export" });
@@ -93,7 +104,9 @@ export async function generateBook(
       concept,
       chapters: formattedChapters,
       images,
+      imageInstructions,
       qualityReport,
+      kindleQAReport,
       exports,
       metadata: {
         title: concept.title,
@@ -137,6 +150,169 @@ function buildBookPlan(config: BookConfig, concept: BookConcept): BookPlan {
     chapterTitles: concept.chapters.map((c) => c.title),
     visualStyle: config.visualStyle,
   };
+}
+
+async function generateImageInstructions(
+  config: BookConfig,
+  concept: BookConcept,
+  chapters: BookChapter[],
+  numImages: number,
+  onProgress: ProgressCallback
+): Promise<ImageInstruction[]> {
+  // If no images requested, return empty array
+  if (numImages <= 0) {
+    return [];
+  }
+
+  const prompt = buildImageInstructionsPrompt(config, concept, chapters, numImages);
+
+  const result = await anthropicClient.callClaude(
+    MASTER_SYSTEM + "\n\n" + IMAGE_INSTRUCTIONS_SYSTEM,
+    [{ role: "user", content: prompt }],
+    6000
+  );
+
+  try {
+    const cleaned = result.text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/, "")
+      .replace(/```\s*$/, "")
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
+    if (parsed.imageInstructions && Array.isArray(parsed.imageInstructions)) {
+      return parsed.imageInstructions.map((inst: any, idx: number) => ({
+        ...inst,
+        id: inst.id || `img_${idx + 1}`,
+        state: "planned" as const,
+        retryCount: 0,
+      }));
+    }
+  } catch (e) {
+    console.warn("Failed to parse image instructions, using fallback:", e);
+  }
+
+  // Fallback: generate basic instructions
+  return generateFallbackImageInstructions(config, concept, chapters, numImages);
+}
+
+const IMAGE_INSTRUCTIONS_SYSTEM = `You are a book art director and visual strategist. Your job is to create detailed image generation instructions for a book's illustrations.
+
+You will receive the book concept, chapter content, and the number of images needed. You must create a JSON array of image instructions that will be sent to an image generation model (Gemini).
+
+Each image instruction must include:
+- id: unique identifier (e.g., "cover", "ch1_1", "ch2_1")
+- placement: "cover" | "chapter-start" | "inline"
+- chapterIndex: number (0-based chapter index, null for cover)
+- purpose: what this image should communicate or achieve
+- description: detailed visual description of the scene
+- visualStyle: the artistic style (e.g., "educational diagram", "warm watercolor", "clean minimal line art")
+- aspectRatio: "1:1" | "3:4" | "4:3" | "16:9"
+- prompt: the complete prompt to send to the image generation model
+
+For cover images: Create a compelling cover concept that represents the book's theme.
+For chapter-start images: Create an illustration that introduces or represents the chapter's main concept.
+For inline images: Create educational diagrams, charts, or scenes that clarify specific concepts.
+
+The prompts should be detailed, specific, and optimized for AI image generation.
+Respond ONLY with valid JSON in this format:
+{
+  "imageInstructions": [
+    {
+      "id": "cover",
+      "placement": "cover",
+      "chapterIndex": null,
+      "purpose": "Main book cover artwork",
+      "description": "Detailed visual description...",
+      "visualStyle": "professional book cover style",
+      "aspectRatio": "3:4",
+      "prompt": "Complete prompt for image generation..."
+    }
+  ]
+}`;
+
+function buildImageInstructionsPrompt(
+  config: BookConfig,
+  concept: BookConcept,
+  chapters: BookChapter[],
+  numImages: number
+): string {
+  const chapterSummaries = chapters.map((ch, i) =>
+    `Chapter ${i + 1}: "${ch.title}"\nSummary: ${ch.description}\nContent preview: ${(ch.content || "").slice(0, 500)}...`
+  ).join("\n\n");
+
+  const imagesPerChapter = Math.max(1, Math.floor(numImages / chapters.length));
+  const coverImage = 1; // Always reserve 1 for cover
+  const remainingImages = numImages - coverImage;
+
+  return `Book: "${concept.title}" — ${concept.subtitle}
+Author: ${config.author}
+Target Audience: ${concept.targetReader}
+Category: ${config.bookCategory}
+Visual Style Preference: ${config.visualStyle || "warm, inviting, semi-realistic illustration style"}
+Total Images Needed: ${numImages} (1 cover + ${remainingImages} chapter illustrations)
+
+Chapter Details:
+${chapterSummaries}
+
+Create ${numImages} image instructions:
+1. 1 cover image
+2. ${remainingImages} chapter illustrations (approximately ${imagesPerChapter} per chapter)
+
+Respond with valid JSON only.`;
+}
+
+function generateFallbackImageInstructions(
+  config: BookConfig,
+  concept: BookConcept,
+  chapters: BookChapter[],
+  numImages: number
+): ImageInstruction[] {
+  const instructions: ImageInstruction[] = [];
+
+  // Cover image
+  instructions.push({
+    id: "cover",
+    placement: "cover",
+    chapterIndex: undefined,
+    purpose: "Main book cover artwork representing the book's theme",
+    description: `Professional book cover for "${concept.title}". ${concept.subtitle}. Symbolic imagery related to the book's subject.`,
+    visualStyle: "professional book cover, clean composition, space for title overlay",
+    aspectRatio: "3:4",
+    prompt: `Book cover illustration for "${concept.title}". Subtitle: "${concept.subtitle}". Target audience: ${concept.targetReader}. Visual style: professional book cover, clean composition with space for text overlay. No text in image.`,
+    state: "planned",
+    retryCount: 0,
+  });
+
+  // Chapter images
+  const remainingImages = numImages - 1;
+  let imgIndex = 1;
+
+  for (let i = 0; i < chapters.length && imgIndex <= remainingImages; i++) {
+    const ch = chapters[i];
+    const content = ch.content || "";
+
+    // Generate 1-2 images per chapter
+    const count = Math.min(2, remainingImages - imgIndex + 1);
+
+    for (let j = 0; j < count && imgIndex <= remainingImages; j++) {
+      instructions.push({
+        id: `ch${i + 1}_${j + 1}`,
+        placement: j === 0 ? "chapter-start" : "inline",
+        chapterIndex: i,
+        purpose: j === 0 ? `Chapter ${i + 1} opening illustration` : `Inline illustration for Chapter ${i + 1}`,
+        description: `Illustration for "${ch.title}". Key concept: ${ch.description}`,
+        visualStyle: config.visualStyle || "warm, inviting, semi-realistic illustration style",
+        aspectRatio: "4:3",
+        prompt: `An illustrative scene for Chapter ${i + 1}: "${ch.title}" in the book "${concept.title}". Key concepts: ${ch.description}. Visual style: ${config.visualStyle || "warm, inviting, semi-realistic illustration style"}. Do not include any text.`,
+        state: "planned",
+        retryCount: 0,
+      });
+      imgIndex++;
+    }
+  }
+
+  return instructions;
 }
 
 async function generateAllChapters(
@@ -232,6 +408,22 @@ Report each issue with a category, severity, location, description, and suggesti
     issues,
     summary: `Quality check found ${issues.length} issues. ${issues.filter((i) => i.severity === "high").length} high severity, ${issues.filter((i) => i.severity === "medium").length} medium, ${issues.filter((i) => i.severity === "low").length} low.`,
   };
+}
+
+async function runKindleQA(
+  config: BookConfig,
+  concept: BookConcept,
+  chapters: BookChapter[]
+): Promise<KindleQAReport> {
+  const prompt = buildKindleQAPrompt(config, concept, chapters);
+
+  const result = await anthropicClient.callClaude(
+    MASTER_SYSTEM + "\n\n" + KINDLE_QA_SYSTEM,
+    [{ role: "user", content: prompt }],
+    4000
+  );
+
+  return parseKindleQAResponse(result.text, config, chapters);
 }
 
 function parseQualityIssues(text: string): QualityReport["issues"] {

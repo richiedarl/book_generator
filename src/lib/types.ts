@@ -71,6 +71,7 @@ export interface BookConfig {
   emotionalGoals: string;
   visualStyle: string;
   fontPreference: string;
+  fontSize: string;
   pageSize: string;
   additionalInstructions: string;
   referenceMaterial?: string;
@@ -78,9 +79,45 @@ export interface BookConfig {
   // Features
   imageGeneration: {
     enabled: boolean;
-    provider: "none" | "gemini";
+    provider: "none" | "gemini" | "nano-banana";
   };
+  numberOfImages: number;
   translateTo?: string[];
+  // Attachments
+  attachments?: Attachment[];
+  // Access token for authenticated book generation
+  accessToken?: string;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  content?: string; // For text-based files
+  base64?: string; // For images
+}
+
+export interface ImageInstruction {
+  id: string;
+  placement: 'cover' | 'chapter-start' | 'inline';
+  chapterIndex?: number;
+  purpose: string;
+  description: string;
+  visualStyle: string;
+  aspectRatio: string;
+  prompt: string;
+  state: 'planned' | 'ready' | 'generating' | 'generated' | 'failed';
+  imageUrl?: string;
+  error?: string;
+  retryCount: number;
+}
+
+export interface BookChapter extends BookChapterMeta {
+  content: string | null;
+  images: BookImage[];
+  status: 'not-started' | 'generating' | 'drafted' | 'edited';
+  imageInstructions?: ImageInstruction[];
 }
 
 export type BookStatus = 'config' | 'concept' | 'writing' | 'generating' | 'editing' | 'formatting' | 'export' | 'ready' | 'error';
@@ -167,10 +204,28 @@ export interface Book {
   chapters: BookChapter[];
   metadata: BookMetadata | null;
   qualityReport: QualityReport | null;
+  kindleQAReport?: KindleQAReport;
   exports: ExportFormat[];
   translations: Record<string, Translation>;
+  imageInstructions?: ImageInstruction[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface KindleQAReport {
+  passed: boolean;
+  score: number;
+  checks: KindleQACheck[];
+  summary: string;
+}
+
+export interface KindleQACheck {
+  category: string;
+  name: string;
+  passed: boolean;
+  severity: "critical" | "warning" | "info";
+  message: string;
+  details?: string;
 }
 
 export const SUPPORTED_LANGUAGES = [
