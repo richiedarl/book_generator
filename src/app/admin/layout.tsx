@@ -25,6 +25,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     checkAuth();
@@ -52,10 +53,22 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     setCurrentPath(window.location.pathname);
   }, []);
 
+  useEffect(() => {
+    if (window.innerWidth <= 768) {
+      setSidebarOpen(false);
+    }
+  }, []);
+
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
+  };
+
+  const handleNavigation = () => {
+    if (window.innerWidth <= 768) {
+      setSidebarOpen(false);
+    }
   };
 
   if (!mounted) {
@@ -76,9 +89,21 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   ];
 
   return (
-    <div className="admin-app-layout min-h-screen bg-[var(--bg-cream)]">
+    <div className={`admin-app-layout min-h-screen bg-[var(--bg-cream)] ${sidebarOpen ? "sidebar-is-open" : "sidebar-is-closed"}`}>
       <header className="admin-header-bar">
         <div className="admin-header-left">
+          <button
+            type="button"
+            className="admin-sidebar-toggle"
+            onClick={() => setSidebarOpen((isOpen) => !isOpen)}
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            aria-expanded={sidebarOpen}
+            aria-controls="admin-sidebar"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              {sidebarOpen ? <path d="M4 6h16M4 12h16M4 18h16" /> : <path d="M4 6h16M4 12h10M4 18h16" />}
+            </svg>
+          </button>
           <Link href="/" className="admin-logo">The Shelf</Link>
           <span className="admin-header-divider" />
           <span className="admin-header-title">Admin Panel</span>
@@ -93,7 +118,13 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       </header>
 
       <div className="admin-main">
-        <nav className="admin-sidebar">
+        <button
+          type="button"
+          className="admin-sidebar-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar"
+        />
+        <nav id="admin-sidebar" className="admin-sidebar" aria-hidden={!sidebarOpen}>
           <ul className="admin-nav-list">
             {navItems.map((item) => {
               const isActive =
@@ -107,6 +138,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                   <Link
                     href={item.href}
                     className={`admin-nav-item ${item.href === "/" ? "write-nav-item" : ""} ${isActive ? "active" : ""}`}
+                    onClick={handleNavigation}
                   >
                     <span className="admin-nav-icon">{item.icon}</span>
                     {item.label}

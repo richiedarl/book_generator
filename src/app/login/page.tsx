@@ -246,12 +246,15 @@ function getStyles() {
 
     .input-wrapper {
       position: relative;
+      width: 100%;
     }
 
     .input-icon {
       position: absolute;
-      left: 14px;
+      left: 16px;
       top: 50%;
+      width: 18px;
+      height: 18px;
       transform: translateY(-50%);
       color: var(--placeholder);
       pointer-events: none;
@@ -260,12 +263,15 @@ function getStyles() {
 
     .form-group input {
       width: 100%;
-      padding: 14px 16px 14px 48px;
+      min-height: 50px;
+      box-sizing: border-box;
+      padding: 13px 16px 13px 48px;
       border: 1.5px solid var(--border-tan);
-      border-radius: 8px;
+      border-radius: 10px;
       background: var(--input-fill);
       font-family: var(--font-body);
       font-size: 15px;
+      line-height: 1.4;
       color: var(--text-main);
       transition: all 0.15s ease;
     }
@@ -277,7 +283,8 @@ function getStyles() {
     .form-group input:focus {
       outline: none;
       border-color: var(--accent-olive);
-      box-shadow: 0 0 0 3px rgba(92, 107, 79, 0.12);
+      background: #fffdf8;
+      box-shadow: 0 0 0 3px rgba(92, 107, 79, 0.14);
     }
 
     .form-group input:focus + .input-icon,

@@ -70,10 +70,7 @@ const AGE_RANGES = [
   "6–8",
   "9–12",
   "13–18",
-  "18–25",
-  "25–35",
-  "35–50",
-  "50+",
+  "18 and above",
   "All Ages",
 ] as const;
 
@@ -95,7 +92,6 @@ const BUYER_TYPES = [
   "Hobbyists / Enthusiasts",
   "Academics / Researchers",
   "General Readers",
-  "Gift Buyers",
 ] as const;
 
 interface PricingConfig {
@@ -120,7 +116,6 @@ export function BookConfigForm() {
   const [topic, setTopic] = useState("");
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
   const [ageRange, setAgeRange] = useState("");
   const [readingLevel, setReadingLevel] = useState("");
   const [buyerType, setBuyerType] = useState("");
@@ -246,10 +241,6 @@ export function BookConfigForm() {
         }
         break;
       case 2:
-        if (!targetAudience.trim()) {
-          setError("Please specify your target audience.");
-          return false;
-        }
         break;
       case 5:
         if (tokenRequired && !isAdmin && !accessToken) {
@@ -260,7 +251,7 @@ export function BookConfigForm() {
     }
     setError("");
     return true;
-  }, [topic, resolvedCategory, targetAudience]);
+  }, [topic, resolvedCategory, tokenRequired, isAdmin, accessToken]);
 
   const goToNextStep = () => {
     if (validateStep(currentStep) && currentStep < totalSteps) {
@@ -290,7 +281,7 @@ export function BookConfigForm() {
         subject: topic.trim(),
         genre: resolvedCategory,
         bookCategory: resolvedCategory,
-        targetAudience: targetAudience.trim(),
+        targetAudience: "",
         ageRange: ageRange.trim(),
         readingLevel: readingLevel.trim(),
         buyerType: buyerType.trim(),
@@ -391,15 +382,15 @@ export function BookConfigForm() {
 
   const stepHeadings = [
     "What story lives in your mind?",
-    "Who is this book for?",
+    "Add content details.",
     "Set the tone and angle.",
     "Shape the manuscript.",
     "Ready to start writing.",
   ];
 
   const stepSubs = [
-    "Pick a category, give me a working title or topic, who it's for, and anything else you want covered.",
-    "Describe the reader you're writing to — their situation, struggles, or stage of life.",
+    "Pick a category and talk a little about what you want to write about.",
+    "Add a title, age range, reading level, and buying audience for the book.",
     "Pick the voice that fits the subject best.",
     "Give me any structural preferences — chapter count, themes to include, length.",
     "Confirm the details below, then I'll begin drafting your manuscript.",
@@ -505,10 +496,10 @@ export function BookConfigForm() {
         </div>
 
         <div className="field">
-          <label htmlFor="bookTopic">Working Title or Topic</label>
+          <label htmlFor="bookTopic">Talk a little about what you want to write about</label>
           <textarea
             id="bookTopic"
-            placeholder="e.g. Why do we push away the people we love? Or: How to break free from self-sabotage in relationships."
+            placeholder="e.g. Why do we push away the people we love? Or how to break free from self-sabotage in relationships."
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             disabled={isSubmitting}
@@ -519,19 +510,6 @@ export function BookConfigForm() {
 
       {/* Step 2: Audience & Content */}
       <div className={`step ${currentStep === 2 ? "active" : ""}`} data-step="2">
-        <div className="field">
-          <label htmlFor="targetAudience">Who is this book for?</label>
-          <textarea
-            id="targetAudience"
-            placeholder="e.g. adults who struggle to trust people after being hurt"
-            value={targetAudience}
-            onChange={(e) => setTargetAudience(e.target.value)}
-            disabled={isSubmitting}
-            className="min-h-24"
-          />
-          <p className="hint">Required — who should read this?</p>
-        </div>
-
         <div className="field">
           <label htmlFor="bookTitle">Book Title</label>
           <input
@@ -1113,7 +1091,6 @@ export function BookConfigForm() {
             <h4>Book Details</h4>
             <p><strong>Title:</strong> {title || "(auto-generate)"}</p>
             <p><strong>Author:</strong> {author || "Anonymous"}</p>
-            <p><strong>Audience:</strong> {targetAudience || "—"}</p>
             <p><strong>Age Range:</strong> {ageRange || "—"}</p>
             <p><strong>Reading Level:</strong> {readingLevel || "—"}</p>
             <p><strong>Buyer Type:</strong> {buyerType || "—"}</p>

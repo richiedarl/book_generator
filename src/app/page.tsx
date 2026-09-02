@@ -796,6 +796,18 @@ function getStyles() {
         min-width: 100%;
         max-width: 100%;
       }
+      .chat-invitation {
+        top: 68px;
+        right: 12px;
+        bottom: auto;
+        gap: 6px;
+        align-items: flex-end;
+      }
+      .chat-invitation-bubble {
+        max-width: calc(100vw - 40px);
+        font-size: 10px;
+        padding: 7px 9px;
+      }
       .chat-sidebar.closed {
         transform: translateX(-100%);
       }
