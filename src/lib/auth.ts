@@ -179,3 +179,92 @@ export function isTokenRequired(): boolean {
 
 // Re-export hashPassword for use in other places if needed
 export { hashPassword, generateAccessToken };
+
+// === Access Token Management (token-based usage tracking) ===
+
+export interface TokenValidationResult {
+  valid: boolean;
+  usesRemaining?: number;
+  error?: string;
+}
+
+export function validateUsageToken(token: string): TokenValidationResult {
+  const { db } = require('@/lib/db');
+  const result = db.prepare('SELECT * FROM access_tokens WHERE token = ?').get(token) as any;
+
+  if (!result) {
+    return { valid: false, error: 'Token not found' };
+  }
+
+  // Check if email token has already been used
+  if (result.type === 'email' && result.used === 1) {
+    return { valid: false, error: 'Email token has already been used' };
+  }
+
+  // Check if token has exceeded max uses
+  if (result.used_count >= result.max_uses) {
+    return { valid: false, error: 'Token has reached maximum uses' };
+  }
+
+  // Check expiry
+  if (result.expires_at && Date.now() > result.expires_at) {
+    return { valid: false, error: 'Token has expired' };
+  }
+
+  const usesRemaining = result.max_uses - result.used_count;
+  return { valid: true, usesRemaining };
+}
+
+export function recordTokenUsage(token: string): { success: boolean; usesRemaining?: number; error?: string } {
+  const { db } = require('@/lib/db');
+  const result = db.prepare('SELECT * FROM access_tokens WHERE token = ?').get(token) as any;
+
+  if (!result) {
+    return { success: false, error: 'Token not found' };
+  }
+
+  if (result.type === 'email' && result.used === 1) {
+    return { success: false, error: 'Email token has already been used' };
+  }
+
+  if (result.used_count >= result.max_uses) {
+    return { success: false, error: 'Token has reached maximum uses' };
+  }
+
+  if (result.expires_at && Date.now() > result.expires_at) {
+    return { success: false, error: 'Token has expired' };
+  }
+
+  // Increment usage
+  const stmt = db.prepare(`
+    UPDATE access_tokens
+    SET used_count = used_count + 1,
+        used = CASE WHEN type = 'email' THEN 1 ELSE used END
+    WHERE token = ?
+  `);
+  stmt.run(token);
+
+  const updated = db.prepare('SELECT * FROM access_tokens WHERE token = ?').get(token) as any;
+  const usesRemaining = updated.max_uses - updated.used_count;
+  return { success: true, usesRemaining };
+}
+
+export function isEmailUsedForToken(email: string): boolean {
+  const { db } = require('@/lib/db');
+  const result = db.prepare(`
+    SELECT COUNT(*) as count FROM access_tokens
+    WHERE email = ? AND type = 'email'
+  `).get(email.toLowerCase()) as { count: number };
+  return result.count > 0;
+}
+
+export function createEmailToken(email: string): { success: boolean; token?: string; error?: string } {
+  const { createAccessToken } = require('@/lib/db');
+
+  if (isEmailUsedForToken(email)) {
+    return { success: false, error: 'This email has already been used to request a token' };
+  }
+
+  const tokenRecord = createAccessToken('email', email.toLowerCase(), null, 1, null);
+  return { success: true, token: tokenRecord.token };
+}

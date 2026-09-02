@@ -32,11 +32,23 @@ export async function POST(request: NextRequest) {
 
     const user = validateAccessToken(token);
     if (!user) {
+      // Check the new usage-based token table
+      const { validateAccessToken: validateUsageToken } = require('@/lib/auth');
+      const usageResult = validateUsageToken(token);
+      if (!usageResult.success || !usageResult.token) {
+        return NextResponse.json({
+          valid: false,
+          tokenRequired: true,
+          error: 'Invalid access token',
+        }, { status: 401 });
+      }
+
       return NextResponse.json({
-        valid: false,
+        valid: true,
         tokenRequired: true,
-        error: 'Invalid access token',
-      }, { status: 401 });
+        isEmailToken: usageResult.token?.type === 'email',
+        usesRemaining: usageResult.usesRemaining,
+      });
     }
 
     return NextResponse.json({

@@ -86,22 +86,8 @@ export function MainArea() {
   }
 
   return (
-    <div className="main">
+    <div className="main min-h-0 w-full flex-1">
       {content}
-
-      <style jsx>{`
-        .main {
-          padding: 44px 56px 80px;
-          max-width: 760px;
-          flex: 1;
-        }
-
-        @media (max-width: 820px) {
-          .main {
-            padding: 28px 22px 60px;
-          }
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Shelf — Multi-step Form</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap');
+
+  :root{
+    --bg-cream: #F0E9DA;
+    --input-fill: #FBF8F0;
+    --border-tan: #D8CFB8;
+    --text-main: #2B2B26;
+    --text-muted: #6B665A;
+    --placeholder: #9C9484;
+    --accent-olive: #5C6B4F;
+    --dark-bg: #141412;
+    --dark-panel: #1B1A17;
+    --dark-border: #2E2C27;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; height:100%; font-family:'Inter', sans-serif; }
+
+  .app{
+    display:flex;
+    height:100vh;
+    width:100%;
+  }
+
+  /* ---------- LEFT: dark chat column ---------- */
+  .chat-panel{
+    width:34%;
+    min-width:300px;
+    background:var(--dark-bg);
+    color:#E9E6DD;
+    display:flex;
+    flex-direction:column;
+    border-right:1px solid var(--dark-border);
+  }
+  .chat-header{
+    padding:18px 20px;
+    font-size:14px;
+    color:#C9C5B8;
+    border-bottom:1px solid var(--dark-border);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .chat-header .dot{
+    width:6px;height:6px;border-radius:50%;
+    background:#5B8CFF;
+    display:inline-block;
+  }
+  .chat-body{
+    flex:1;
+    padding:20px;
+    overflow-y:auto;
+    font-size:14.5px;
+    line-height:1.55;
+  }
+  .bubble{
+    background:#232019;
+    border-radius:10px;
+    padding:16px 18px;
+    color:#D8D4C8;
+    margin-bottom:16px;
+  }
+  .ran-command{
+    color:#8A8578;
+    font-size:13px;
+    margin:14px 0;
+  }
+  .spark{
+    width:34px;height:34px;
+    color:#D97757;
+    margin:6px 0 20px 0;
+    font-size:22px;
+  }
+  .chat-footer{
+    border-top:1px solid var(--dark-border);
+    padding:16px 18px;
+  }
+  .limit-note{
+    font-size:13px;
+    color:#B7B2A4;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .limit-note a{ color:#8FB3FF; text-decoration:underline; }
+  .upgrade-btn{
+    background:#2A2823;
+    color:#E9E6DD;
+    border:1px solid var(--dark-border);
+    border-radius:6px;
+    padding:6px 14px;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .chat-input{
+    background:#201E1A;
+    border:1px solid var(--dark-border);
+    border-radius:10px;
+    padding:12px 14px;
+    color:#8A8578;
+    font-size:14px;
+  }
+  .chat-input-tools{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:10px;
+    font-size:12.5px;
+    color:#8A8578;
+  }
+
+  /* ---------- RIGHT: cream form panel ---------- */
+  .form-panel{
+    flex:1;
+    background:var(--bg-cream);
+    display:flex;
+    flex-direction:column;
+    overflow-y:auto;
+  }
+  .form-topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 28px;
+    border-bottom:1px solid var(--border-tan);
+    font-size:13px;
+    color:var(--text-muted);
+  }
+  .form-topbar .title{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:var(--text-main);
+  }
+  .form-topbar button{
+    background:#EDE6D6;
+    border:1px solid var(--border-tan);
+    color:var(--text-main);
+    padding:6px 14px;
+    border-radius:6px;
+    font-size:13px;
+    cursor:pointer;
+  }
+
+  .form-content{
+    max-width:640px;
+    width:100%;
+    margin:0 auto;
+    padding:56px 32px 80px;
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    text-transform:uppercase;
+    letter-spacing:0.1em;
+    font-size:12px;
+    color:var(--accent-olive);
+    margin-bottom:14px;
+  }
+
+  h1.step-heading{
+    font-family:'Source Serif 4', serif;
+    font-weight:700;
+    font-size:36px;
+    line-height:1.15;
+    color:var(--text-main);
+    margin:0 0 14px 0;
+  }
+
+  .step-sub{
+    font-size:16px;
+    line-height:1.6;
+    color:var(--text-muted);
+    max-width:60ch;
+    margin:0 0 36px 0;
+  }
+
+  /* progress */
+  .progress-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:40px;
+  }
+  .progress-track{
+    flex:1;
+    height:2px;
+    background:var(--border-tan);
+    position:relative;
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .progress-fill{
+    position:absolute;
+    left:0; top:0; bottom:0;
+    background:var(--accent-olive);
+    border-radius:2px;
+    transition:width .35s ease;
+  }
+  .progress-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.06em;
+    color:var(--text-muted);
+    white-space:nowrap;
+  }
+
+  .field{
+    margin-bottom:24px;
+  }
+  .field label{
+    display:block;
+    font-family:'IBM Plex Mono', monospace;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    font-size:11.5px;
+    color:var(--accent-olive);
+    margin-bottom:8px;
+  }
+  .field .hint{
+    font-family:'Inter', sans-serif;
+    text-transform:none;
+    letter-spacing:0;
+    color:var(--text-muted);
+    font-weight:400;
+    font-size:12.5px;
+    margin-left:6px;
+  }
+
+  input[type=text], textarea, select{
+    width:100%;
+    background:var(--input-fill);
+    border:1px solid var(--border-tan);
+    border-radius:5px;
+    padding:13px 15px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:14px;
+    color:var(--text-main);
+    outline:none;
+  }
+  input[type=text]::placeholder, textarea::placeholder{
+    color:var(--placeholder);
+    font-family:'Inter', sans-serif;
+  }
+  textarea{
+    resize:vertical;
+    min-height:96px;
+    font-family:'Inter', sans-serif;
+  }
+  input:focus, textarea:focus, select:focus{
+    border-color:var(--accent-olive);
+  }
+
+  select{
+    appearance:none;
+    -webkit-appearance:none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236B665A' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 14px center;
+    padding-right:38px;
+  }
+
+  .choice-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+  .choice-card{
+    border:1px solid var(--border-tan);
+    background:var(--input-fill);
+    border-radius:6px;
+    padding:16px;
+    cursor:pointer;
+    transition:border-color .15s ease;
+  }
+  .choice-card:hover{ border-color:var(--accent-olive); }
+  .choice-card.selected{
+    border-color:var(--accent-olive);
+    box-shadow:inset 0 0 0 1px var(--accent-olive);
+  }
+  .choice-card .name{
+    font-family:'Source Serif 4', serif;
+    font-size:15px;
+    color:var(--text-main);
+    margin-bottom:4px;
+  }
+  .choice-card .desc{
+    font-size:12.5px;
+    color:var(--text-muted);
+    line-height:1.4;
+  }
+
+  .nav-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:44px;
+    padding-top:24px;
+    border-top:1px solid var(--border-tan);
+  }
+  .btn{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    letter-spacing:0.03em;
+    padding:11px 22px;
+    border-radius:5px;
+    cursor:pointer;
+    border:1px solid transparent;
+  }
+  .btn-back{
+    background:transparent;
+    border-color:var(--border-tan);
+    color:var(--text-main);
+  }
+  .btn-back:hover{ background:#EAE2D0; }
+  .btn-next{
+    background:var(--text-main);
+    color:var(--bg-cream);
+  }
+  .btn-next:hover{ background:#1E1E1A; }
+  .btn:disabled{
+    opacity:.4;
+    cursor:default;
+  }
+
+  .step{ display:none; animation:fadein .25s ease; }
+  .step.active{ display:block; }
+  @keyframes fadein{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+
+  @media (max-width: 860px){
+    .chat-panel{ display:none; }
+    .form-content{ padding:36px 20px 60px; }
+    .choice-grid{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- LEFT: dark chat panel -->
+  <div class="chat-panel">
+    <div class="chat-header"><span class="dot"></span> Nonfiction psychology book writing guidelines</div>
+    <div class="chat-body">
+      <div class="bubble">
+        sounding overly polished or formulaic. The final manuscript must be original, coherent, factually responsible, and edited to read like a skilled human author. Never use em dashes... not optimized to deceive AI detectors. Then the PDF download isn't working — fix it, ensure a PDF is ready to be downloaded.
+      </div>
+      <div class="ran-command">Ran a command</div>
+      <div class="spark">✳</div>
+    </div>
+    <div class="chat-footer">
+      <div class="limit-note">
+        <span>You are out of free <a href="#">messages</a> until 6:10 PM</span>
+        <button class="upgrade-btn">Upgrade</button>
+      </div>
+      <div class="chat-input">Write a message…</div>
+      <div class="chat-input-tools">
+        <span>Sonnet 5 · Medium</span>
+        <span>🎙 ▮▮▮</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: cream multi-step form panel -->
+  <div class="form-panel">
+    <div class="form-topbar">
+      <div class="title">👁 Book agent · HTML</div>
+      <button>Copy</button>
+    </div>
+
+    <div class="form-content">
+
+      <div class="progress-row">
+        <span class="progress-label" id="stepLabel">STEP 1 / 5</span>
+        <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:20%"></div></div>
+      </div>
+
+      <!-- STEP 1 -->
+      <div class="step active" data-step="1">
+        <div class="eyebrow">Book Creation &amp; Kindle Publishing Studio</div>
+        <h1 class="step-heading">Let's develop your book.</h1>
+        <p class="step-sub">Pick a category, give me a working title or topic, who it's for, and anything else you want covered.</p>
+
+        <div class="field">
+          <label>Category</label>
+          <select>
+            <option>Human Psychology &amp; Behavior</option>
+            <option>Self-Help &amp; Personal Growth</option>
+            <option>Business &amp; Leadership</option>
+            <option>Health &amp; Wellness</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Working title or topic</label>
+          <input type="text" placeholder="e.g. Why We Push Away the People We Love">
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div class="step" data-step="2">
+        <div class="eyebrow">Audience</div>
+        <h1 class="step-heading">Who is this book for?</h1>
+        <p class="step-sub">Describe the reader you're writing to — their situation, struggles, or stage of life.</p>
+
+        <div class="field">
+          <label>Who is this for? <span class="hint">optional</span></label>
+          <textarea placeholder="e.g. adults who struggle to trust people after being hurt"></textarea>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div class="step" data-step="3">
+        <div class="eyebrow">Direction</div>
+        <h1 class="step-heading">Set the tone and angle.</h1>
+        <p class="step-sub">Pick the voice that fits the subject best.</p>
+
+        <div class="field">
+          <label>Tone</label>
+          <div class="choice-grid">
+            <div class="choice-card"><div class="name">Warm &amp; conversational</div><div class="desc">Friendly, personal, like advice from a trusted friend.</div></div>
+            <div class="choice-card"><div class="name">Clinical &amp; precise</div><div class="desc">Research-driven, measured, expert-toned.</div></div>
+            <div class="choice-card"><div class="name">Narrative-led</div><div class="desc">Story-first, case studies woven through chapters.</div></div>
+            <div class="choice-card"><div class="name">Direct &amp; practical</div><div class="desc">Short chapters, clear takeaways, action-oriented.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div class="step" data-step="4">
+        <div class="eyebrow">Structure</div>
+        <h1 class="step-heading">Shape the manuscript.</h1>
+        <p class="step-sub">Give me any structural preferences — chapter count, themes to include, length.</p>
+
+        <div class="field">
+          <label>Themes, chapters, length <span class="hint">optional</span></label>
+          <textarea placeholder="e.g. 12 chapters, include a chapter on attachment styles, aim for 40,000 words"></textarea>
+        </div>
+      </div>
+
+      <!-- STEP 5 -->
+      <div class="step" data-step="5">
+        <div class="eyebrow">Review</div>
+        <h1 class="step-heading">Ready to start writing.</h1>
+        <p class="step-sub">Confirm the details below, then I'll begin drafting your manuscript.</p>
+
+        <div class="field">
+          <label>Final notes <span class="hint">optional</span></label>
+          <textarea placeholder="Anything else I should know before we begin?"></textarea>
+        </div>
+      </div>
+
+      <div class="nav-row">
+        <button class="btn btn-back" id="backBtn" disabled>Back</button>
+        <button class="btn btn-next" id="nextBtn">Continue</button>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const total = 5;
+  let current = 1;
+  const steps = document.querySelectorAll('.step');
+  const backBtn = document.getElementById('backBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const stepLabel = document.getElementById('stepLabel');
+  const progressFill = document.getElementById('progressFill');
+
+  document.querySelectorAll('.choice-card').forEach(card=>{
+    card.addEventListener('click', ()=>{
+      card.parentElement.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));
+      card.classList.add('selected');
+    });
+  });
+
+  function render(){
+    steps.forEach(s=>s.classList.toggle('active', Number(s.dataset.step)===current));
+    stepLabel.textContent = `STEP ${current} / ${total}`;
+    progressFill.style.width = (current/total*100)+'%';
+    backBtn.disabled = current === 1;
+    nextBtn.textContent = current === total ? 'Generate book' : 'Continue';
+  }
+
+  backBtn.addEventListener('click', ()=>{ if(current>1){ current--; render(); }});
+  nextBtn.addEventListener('click', ()=>{
+    if(current<total){ current++; render(); }
+    else { nextBtn.textContent = 'Generating…'; }
+  });
+
+  render();
+</script>
+
+</body>
+</html>

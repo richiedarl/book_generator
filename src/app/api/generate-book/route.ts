@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       let token = accessToken;
 
       if (!token) {
-        // Check session cookie
+        // Check session cookie — admin user access token
         const sessionUser = await getSessionUser();
         if (sessionUser?.accessToken) {
           token = sessionUser.accessToken;
@@ -83,19 +83,43 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // First validate against admin users table (legacy admin tokens)
       const user = validateAccessToken(token);
-      if (!user) {
-        return NextResponse.json(
-          {
-            error: "Invalid access token",
-            tokenRequired: true,
-          },
-          { status: 401 }
-        );
-      }
 
-      // Optionally attach user info to config for tracking
-      config.author = config.author || user.name;
+      // Then validate against the new access_tokens table (usage-based tokens)
+      if (!user) {
+        const { validateUsageToken, recordTokenUsage } = require('@/lib/auth');
+        const usageResult = validateUsageToken(token);
+        if (!usageResult.valid) {
+          return NextResponse.json(
+            {
+              error: usageResult.error || "Invalid access token",
+              tokenRequired: true,
+            },
+            { status: 401 }
+          );
+        }
+
+        // Token is valid — record usage (consume one use)
+        const updateResult = recordTokenUsage(token);
+        if (!updateResult.success) {
+          return NextResponse.json(
+            {
+              error: updateResult.error || "Token usage could not be recorded",
+              tokenRequired: true,
+              usesRemaining: 0,
+            },
+            { status: 401 }
+          );
+        }
+
+        // Set author and track remaining uses on config
+        config.author = config.author || "Anonymous";
+        (config as any).tokenUsesRemaining = updateResult.usesRemaining;
+      } else {
+        // Legacy admin token — proceed normally
+        config.author = config.author || user.name;
+      }
     }
 
     // Check that Anthropic API key is configured before starting the pipeline

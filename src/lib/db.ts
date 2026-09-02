@@ -12,6 +12,11 @@ import { v4 as uuidv4 } from 'uuid';
 const DB_DIR = join(process.cwd(), 'data');
 const DB_PATH = join(DB_DIR, 'theshelf.db');
 
+// Pricing defaults
+const PURCHASE_TOKEN_PRICE_CENTS = 4900;
+const DEFAULT_PURCHASE_USES = 20;
+const DEFAULT_EXPIRY_DAYS = 30;
+
 // Ensure data directory exists
 if (!existsSync(DB_DIR)) {
   mkdirSync(DB_DIR, { recursive: true });
@@ -38,6 +43,19 @@ export interface AuthConfig {
   jwt_secret: string;
 }
 
+export interface AccessToken {
+  id: string;
+  token: string;
+  type: 'purchase' | 'email';
+  user_id: string | null;
+  email: string | null;
+  max_uses: number;
+  used_count: number;
+  expires_at: number | null;
+  created_at: number;
+  used: number; // 0 or 1 for email tokens
+}
+
 // Initialize database tables
 export function initializeDatabase() {
   // Users table
@@ -62,10 +80,76 @@ export function initializeDatabase() {
     )
   `);
 
+  // Pricing config table — stores token price settings
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pricing_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  // Initialize default pricing config
+  const priceConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_price_cents');
+  if (!priceConfig) {
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_price_cents', String(PURCHASE_TOKEN_PRICE_CENTS));
+  }
+
+  const usesConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses');
+  if (!usesConfig) {
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_uses', String(DEFAULT_PURCHASE_USES));
+  }
+
+  const expiryConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_expiry_days');
+  if (!expiryConfig) {
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_expiry_days', String(DEFAULT_EXPIRY_DAYS));
+  }
+
+  // Access tokens table — tracks purchased and email-generated tokens
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS access_tokens (
+      id TEXT PRIMARY KEY,
+      token TEXT UNIQUE NOT NULL,
+      type TEXT NOT NULL,
+      user_id TEXT,
+      email TEXT,
+      max_uses INTEGER NOT NULL DEFAULT 20,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     CREATE INDEX IF NOT EXISTS idx_users_access_token ON users(access_token);
+    CREATE INDEX IF NOT EXISTS idx_tokens_token ON access_tokens(token);
+    CREATE INDEX IF NOT EXISTS idx_tokens_email ON access_tokens(email);
+    CREATE INDEX IF NOT EXISTS idx_tokens_expires ON access_tokens(expires_at);
+  `);
+
+  // Payments table — tracks revenue from purchase token creation
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id TEXT PRIMARY KEY,
+      token_id TEXT NOT NULL,
+      user_id TEXT,
+      email TEXT,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'usd',
+      status TEXT NOT NULL DEFAULT 'completed',
+      provider TEXT,
+      provider_payment_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  // Payment indexes
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_payments_token ON payments(token_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_email ON payments(email);
+    CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at);
   `);
 
   // Initialize default auth config
@@ -81,6 +165,54 @@ export function initializeDatabase() {
   }
 
   console.log('✅ Database initialized');
+}
+
+/**
+ * === Payment Tracking ===
+ * The platform receives payments through token purchases.
+ * When a purchase token is created, a corresponding payment record
+ * is stored so the admin can review revenue. Email tokens are not
+ * paid, so no payment record is created for them.
+ */
+
+export interface Payment {
+  id: string;
+  token_id: string;
+  user_id: string | null;
+  email: string | null;
+  amount: number;
+  currency: string;
+  status: 'completed' | 'pending' | 'failed';
+  provider: string | null;
+  provider_payment_id: string | null;
+  created_at: number;
+}
+
+/** Record a payment for a purchase token creation. */
+export function createPayment(
+  tokenId: string,
+  userId: string | null,
+  email: string | null,
+  amount: number,
+  currency: string = 'usd',
+  provider: string | null = 'simulated',
+  providerPaymentId: string | null = null
+): Payment {
+  const id = uuidv4();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO payments (id, token_id, user_id, email, amount, currency, status, provider, provider_payment_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, tokenId, userId, email, amount, currency, 'completed', provider, providerPaymentId, now);
+
+  return db.prepare('SELECT * FROM payments WHERE id = ?').get(id) as Payment;
+}
+
+/** Fetch all payment records, newest first. */
+export function getAllPayments(): Payment[] {
+  return db.prepare(`
+    SELECT * FROM payments ORDER BY created_at DESC
+  `).all() as Payment[];
 }
 
 // Create default admin if none exists
@@ -249,6 +381,131 @@ export function getAuthConfig(): AuthConfig {
     token_required: tokenRequired ? parseInt(tokenRequired.value, 10) : 0,
     jwt_secret: jwtSecret?.value || 'your-super-secret-jwt-key-change-in-production',
   };
+}
+
+// === Access Token Management ===
+
+export function createAccessToken(
+  type: 'purchase' | 'email',
+  email: string | null = null,
+  userId: string | null = null,
+  maxUses: number = DEFAULT_PURCHASE_USES,
+  expiryDays: number | null = DEFAULT_EXPIRY_DAYS
+): AccessToken {
+  const id = uuidv4();
+  const token = generateAccessToken();
+  const now = Date.now();
+  const expiresAt = expiryDays ? now + (expiryDays * 24 * 60 * 60 * 1000) : null;
+
+  db.prepare(`
+    INSERT INTO access_tokens (id, token, type, user_id, email, max_uses, used_count, expires_at, created_at, used)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 0)
+  `).run(id, token, type, userId, email, maxUses, expiresAt, now);
+
+  const created = db.prepare('SELECT * FROM access_tokens WHERE id = ?').get(id) as AccessToken;
+  return created;
+}
+
+export function getAccessToken(token: string): AccessToken | undefined {
+  const stmt = db.prepare('SELECT * FROM access_tokens WHERE token = ?');
+  return stmt.get(token) as AccessToken | undefined;
+}
+
+export function getTokenById(id: string): AccessToken | undefined {
+  const stmt = db.prepare('SELECT * FROM access_tokens WHERE id = ?');
+  return stmt.get(id) as AccessToken | undefined;
+}
+
+export function validateAccessToken(token: string): { valid: boolean; token?: AccessToken; error?: string } {
+  const accessToken = getAccessToken(token);
+
+  if (!accessToken) {
+    return { valid: false, error: 'Token not found' };
+  }
+
+  // Check if email token has already been used
+  if (accessToken.type === 'email' && accessToken.used === 1) {
+    return { valid: false, error: 'Email token has already been used' };
+  }
+
+  // Check if token has exceeded max uses
+  if (accessToken.used_count >= accessToken.max_uses) {
+    return { valid: false, error: 'Token has reached maximum uses' };
+  }
+
+  // Check expiry
+  if (accessToken.expires_at && Date.now() > accessToken.expires_at) {
+    return { valid: false, error: 'Token has expired' };
+  }
+
+  return { valid: true, token: accessToken };
+}
+
+export function incrementTokenUsage(token: string): AccessToken | undefined {
+  const stmt = db.prepare(`
+    UPDATE access_tokens
+    SET used_count = used_count + 1,
+        used = CASE WHEN type = 'email' THEN 1 ELSE used END
+    WHERE token = ?
+  `);
+  stmt.run(token);
+
+  return getAccessToken(token);
+}
+
+export function checkEmailUsed(email: string): boolean {
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as count FROM access_tokens
+    WHERE email = ? AND type = 'email'
+  `);
+  const result = stmt.get(email) as { count: number };
+  return result.count > 0;
+}
+
+export function getAllAccessTokens(): AccessToken[] {
+  const stmt = db.prepare(`
+    SELECT * FROM access_tokens
+    ORDER BY created_at DESC
+  `);
+  return stmt.all() as AccessToken[];
+}
+
+export function deleteAccessToken(id: string): boolean {
+  const stmt = db.prepare('DELETE FROM access_tokens WHERE id = ?');
+  const result = stmt.run(id);
+  return result.changes > 0;
+}
+
+/** === Pricing Config === */
+
+export interface PricingConfig {
+  purchaseTokenPriceCents: number;
+  purchaseTokenUses: number;
+  purchaseTokenExpiryDays: number;
+}
+
+export function getPricingConfig(): PricingConfig {
+  const price = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_price_cents') as { value: string } | undefined;
+  const uses = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses') as { value: string } | undefined;
+  const expiry = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_expiry_days') as { value: string } | undefined;
+
+  return {
+    purchaseTokenPriceCents: price ? parseInt(price.value, 10) : PURCHASE_TOKEN_PRICE_CENTS,
+    purchaseTokenUses: uses ? parseInt(uses.value, 10) : DEFAULT_PURCHASE_USES,
+    purchaseTokenExpiryDays: expiry ? parseInt(expiry.value, 10) : DEFAULT_EXPIRY_DAYS,
+  };
+}
+
+export function setPricingConfig(config: Partial<PricingConfig>) {
+  if (config.purchaseTokenPriceCents !== undefined) {
+    db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenPriceCents), 'purchase_token_price_cents');
+  }
+  if (config.purchaseTokenUses !== undefined) {
+    db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenUses), 'purchase_token_uses');
+  }
+  if (config.purchaseTokenExpiryDays !== undefined) {
+    db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenExpiryDays), 'purchase_token_expiry_days');
+  }
 }
 
 export function setTokenRequired(required: boolean) {

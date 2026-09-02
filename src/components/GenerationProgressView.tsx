@@ -20,7 +20,7 @@ export function GenerationProgressView() {
           ? "The manuscript has been generated, edited, and exported."
           : isFailed
           ? jobError || "Something went wrong during generation."
-          : generationStage || "Please wait while Claude creates your book."}
+          : generationStage || "Please wait while your book is being created."}
       </p>
 
       {!isCompleted && (

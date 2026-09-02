@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Category Field — Design Spec + Component</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap');
+
+  :root{
+    --bg-cream:#F0E9DA;
+    --input-fill:#F5EEDF;
+    --border-tan:#2B2B26;
+    --text-main:#2B2B26;
+    --text-muted:#6B665A;
+    --label-olive:#6B7A5E;
+    --select-blue:#1E5FDE;
+    --select-blue-text:#FFFFFF;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    background:#1a1a17;
+    font-family:'Inter', sans-serif;
+    padding:60px 20px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:50px;
+  }
+
+  /* ============ SPEC SHEET ============ */
+  .spec{
+    width:100%;
+    max-width:640px;
+    background:#111;
+    color:#D8D4C8;
+    border-radius:10px;
+    padding:28px 32px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    line-height:1.7;
+  }
+  .spec h2{
+    font-family:'Inter', sans-serif;
+    font-size:15px;
+    color:#fff;
+    margin:0 0 16px 0;
+    letter-spacing:0.02em;
+  }
+  .spec .row{ display:flex; gap:14px; margin-bottom:6px; }
+  .spec .k{ color:#8FB08A; min-width:170px; }
+  .spec .v{ color:#D8D4C8; }
+  .spec .section-title{
+    color:#C9A05C;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    font-size:11px;
+    margin:18px 0 8px 0;
+  }
+  .spec .section-title:first-of-type{ margin-top:0; }
+
+  /* ============ LIVE COMPONENT ============ */
+  .demo-wrap{
+    width:100%;
+    max-width:640px;
+    background:var(--bg-cream);
+    border-radius:10px;
+    padding:36px 32px 44px;
+  }
+  .field-label{
+    font-family:'IBM Plex Mono', monospace;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    font-size:11.5px;
+    color:var(--label-olive);
+    margin-bottom:10px;
+  }
+
+  .select-wrap{
+    position:relative;
+    font-family:'IBM Plex Mono', monospace;
+  }
+
+  .select-trigger{
+    width:100%;
+    background:var(--input-fill);
+    border:1px solid var(--border-tan);
+    padding:13px 16px;
+    font-size:15px;
+    color:var(--text-main);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    cursor:pointer;
+    user-select:none;
+  }
+  .select-trigger .chevron{
+    width:14px; height:14px;
+    transition:transform .15s ease;
+  }
+  .select-wrap.open .select-trigger .chevron{ transform:rotate(180deg); }
+
+  .select-panel{
+    position:absolute;
+    left:0; right:0; top:calc(100% - 1px);
+    background:var(--input-fill);
+    border:1px solid var(--border-tan);
+    border-top:none;
+    max-height:340px;
+    overflow-y:auto;
+    z-index:10;
+    display:none;
+  }
+  .select-wrap.open .select-panel{ display:block; }
+
+  .select-option{
+    padding:11px 16px;
+    font-size:15px;
+    color:var(--text-main);
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .select-option:hover{
+    background:#E6DFCB;
+  }
+  .select-option.selected{
+    background:var(--select-blue);
+    color:var(--select-blue-text);
+    font-weight:600;
+  }
+
+  /* scrollbar styled to match screenshot's visible track */
+  .select-panel::-webkit-scrollbar{ width:14px; }
+  .select-panel::-webkit-scrollbar-track{ background:var(--input-fill); }
+  .select-panel::-webkit-scrollbar-thumb{ background:#8A8578; border:3px solid var(--input-fill); }
+</style>
+</head>
+<body>
+
+<!-- ============ DESIGN SPEC ============ -->
+<div class="spec">
+  <h2>Category Field — Design Spec</h2>
+
+  <div class="section-title">Trigger (closed state)</div>
+  <div class="row"><span class="k">background</span><span class="v">#F5EEDF (input cream, distinct from page #F0E9DA)</span></div>
+  <div class="row"><span class="k">border</span><span class="v">1px solid #2B2B26 (full dark border, not tan hairline — heavier than text inputs)</span></div>
+  <div class="row"><span class="k">border-radius</span><span class="v">0px — sharp corners</span></div>
+  <div class="row"><span class="k">padding</span><span class="v">13px vertical / 16px horizontal</span></div>
+  <div class="row"><span class="k">font</span><span class="v">monospace, 15px, regular weight, #2B2B26</span></div>
+  <div class="row"><span class="k">chevron</span><span class="v">thin stroke, right-aligned, rotates 180° on open</span></div>
+
+  <div class="section-title">Label above field</div>
+  <div class="row"><span class="k">text</span><span class="v">"CATEGORY" — uppercase</span></div>
+  <div class="row"><span class="k">font</span><span class="v">monospace, ~11px, letter-spacing 0.08em</span></div>
+  <div class="row"><span class="k">color</span><span class="v">muted olive-gray #6B665A (lighter than the sage accent used elsewhere)</span></div>
+
+  <div class="section-title">Dropdown panel (open state)</div>
+  <div class="row"><span class="k">background</span><span class="v">same cream fill as trigger, #F5EEDF</span></div>
+  <div class="row"><span class="k">border</span><span class="v">1px solid #2B2B26, continues trigger's border, no gap/shadow</span></div>
+  <div class="row"><span class="k">border-radius</span><span class="v">0px, flush rectangular list</span></div>
+  <div class="row"><span class="k">max-height</span><span class="v">~340px, scrolls internally</span></div>
+  <div class="row"><span class="k">scrollbar</span><span class="v">visible native-style track, no custom overlay hiding</span></div>
+
+  <div class="section-title">List options</div>
+  <div class="row"><span class="k">default row</span><span class="v">transparent bg, #2B2B26 text, monospace 15px, ~11px vertical padding</span></div>
+  <div class="row"><span class="k">selected row</span><span class="v">solid blue fill #1E5FDE, white text, bold weight — high-contrast native-select-style highlight</span></div>
+  <div class="row"><span class="k">hover row</span><span class="v">subtle darken of cream (~#E6DFCB), no border/shadow</span></div>
+  <div class="row"><span class="k">row alignment</span><span class="v">left-aligned, single line, no wrap, no icons</span></div>
+
+  <div class="section-title">Character</div>
+  <div class="row"><span class="k">feel</span><span class="v">looks like a styled native &lt;select&gt; rather than a custom combobox — blunt edges, OS-blue selection color deliberately kept instead of theming it to the olive accent</span></div>
+</div>
+
+<!-- ============ LIVE COMPONENT ============ -->
+<div class="demo-wrap">
+  <div class="field-label">Category</div>
+  <div class="select-wrap" id="selectWrap">
+    <div class="select-trigger" id="selectTrigger">
+      <span id="selectedText">Human Psychology &amp; Behavior</span>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="#2B2B26" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="select-panel" id="selectPanel">
+      <div class="select-option selected" data-value="Human Psychology &amp; Behavior">Human Psychology &amp; Behavior</div>
+      <div class="select-option" data-value="Food, Fruits, Culture &amp; Culinary">Food, Fruits, Culture &amp; Culinary</div>
+      <div class="select-option" data-value="Children's Creative Learning &amp; Stories (ages 3-12)">Children's Creative Learning &amp; Stories (ages 3-12)</div>
+      <div class="select-option" data-value="Animals, Wildlife, Nature &amp; Earth">Animals, Wildlife, Nature &amp; Earth</div>
+      <div class="select-option" data-value="Travel, Tour, Vacation &amp; Destination">Travel, Tour, Vacation &amp; Destination</div>
+      <div class="select-option" data-value="Sports, Games, Fitness &amp; Athletic Activities">Sports, Games, Fitness &amp; Athletic Activities</div>
+      <div class="select-option" data-value="Technology">Technology</div>
+      <div class="select-option" data-value="Fashion">Fashion</div>
+      <div class="select-option" data-value="Resources, Manufacturing &amp; Production">Resources, Manufacturing &amp; Production</div>
+      <div class="select-option" data-value="Farming, Agriculture &amp; Food Production">Farming, Agriculture &amp; Food Production</div>
+      <div class="select-option" data-value="History">History</div>
+      <div class="select-option" data-value="Social Cultures, Traditions &amp; Everyday Life">Social Cultures, Traditions &amp; Everyday Life</div>
+      <div class="select-option" data-value="Business, Economics, Money &amp; Investment">Business, Economics, Money &amp; Investment</div>
+      <div class="select-option" data-value="Vocation, Career, Industry &amp; Skills">Vocation, Career, Industry &amp; Skills</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const wrap = document.getElementById('selectWrap');
+  const trigger = document.getElementById('selectTrigger');
+  const panel = document.getElementById('selectPanel');
+  const selectedText = document.getElementById('selectedText');
+
+  trigger.addEventListener('click', ()=>{
+    wrap.classList.toggle('open');
+  });
+
+  panel.querySelectorAll('.select-option').forEach(opt=>{
+    opt.addEventListener('click', ()=>{
+      panel.querySelectorAll('.select-option').forEach(o=>o.classList.remove('selected'));
+      opt.classList.add('selected');
+      selectedText.textContent = opt.textContent;
+      wrap.classList.remove('open');
+    });
+  });
+
+  document.addEventListener('click', (e)=>{
+    if(!wrap.contains(e.target)) wrap.classList.remove('open');
+  });
+</script>
+
+</body>
+</html>

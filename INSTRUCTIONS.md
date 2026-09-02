@@ -1622,6 +1622,11 @@ Claude + Gemini → book + optional visuals.
 
 That should prevent the implementation from drifting back into the assumption that every book needs Gemini.
 
+DESIGN SPECS
+
+- ALWAYS consult DESIGN_SPECS.md for inpiration before modifying design
+
+
 ============================================================
 60. IMPLEMENTATION STATUS — COMPLETED WORK
 ============================================================

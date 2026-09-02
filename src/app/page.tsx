@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { BookProvider, useBook } from "@/context/BookContext";
-import { Shelf } from "@/components/Shelf";
 import { MainArea } from "@/components/MainArea";
 
 export default function Home() {
@@ -18,10 +17,10 @@ function HomeContent() {
   const { state, actions } = useBook();
   const [user, setUser] = useState<{ id: string; email: string; name: string; isAdmin: boolean; accessToken?: string } | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [isChatStreaming, setIsChatStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Check Gemini availability when the book becomes ready
@@ -47,95 +46,61 @@ function HomeContent() {
     setUser(null);
   };
 
-  const scrollToBottom = () => {
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, [chatMessages]);
 
-  useEffect(() => { scrollToBottom(); }, [chatMessages]);
+  const handleSendMessage = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const message = chatInput.trim();
+    if (!message || isChatStreaming) return;
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isStreaming) return;
-
-    const userMessage = chatInput.trim();
-    setChatMessages(prev => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
-    setIsStreaming(true);
+    setChatMessages((current) => [...current, { role: "user", content: message }, { role: "assistant", content: "" }]);
+    setIsChatStreaming(true);
 
     try {
-      // Build context from current book state
-      const context = buildBookContext(state);
-
       const response = await fetch("/api/claude-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
-            { role: "system", content: getSystemPrompt(context) },
+            { role: "system", content: "You are a concise writing assistant for The Shelf book studio. Help with book planning, structure, and writing craft. Do not generate full chapters." },
             ...chatMessages,
-            { role: "user", content: userMessage }
-          ]
+            { role: "user", content: message },
+          ],
         }),
       });
+      if (!response.ok || !response.body) throw new Error("Unable to reach the writing desk");
 
-      if (!response.ok) throw new Error("Failed to get response");
-
-      const reader = response.body!.getReader();
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = "";
-
-      // Add empty assistant message
-      setChatMessages(prev => [...prev, { role: "assistant", content: "" }]);
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n\n");
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-
-          const jsonStr = trimmed.slice(6).trim();
-          if (!jsonStr) continue;
-
+        for (const line of decoder.decode(value, { stream: true }).split("\n\n")) {
+          if (!line.trim().startsWith("data: ")) continue;
           try {
-            const event = JSON.parse(jsonStr);
-            if (event.type === "content" && event.text) {
-              assistantMessage += event.text;
-              setChatMessages(prev => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1] = {
-                  ...newMessages[newMessages.length - 1],
-                  content: assistantMessage
-                };
-                return newMessages;
-              });
+            const eventData = JSON.parse(line.trim().slice(6));
+            if (eventData.type === "content" && eventData.text) {
+              assistantMessage += eventData.text;
+              setChatMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, content: assistantMessage } : item));
             }
           } catch {}
         }
       }
-    } catch (err) {
-      console.error("Chat error:", err);
-      setChatMessages(prev => {
-        const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = {
-          role: "assistant",
-          content: "Sorry, I couldn't respond. Please try again."
-        };
-        return newMessages;
-      });
+    } catch {
+      setChatMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, content: "I couldn't respond right now. Please try again." } : item));
     } finally {
-      setIsStreaming(false);
+      setIsChatStreaming(false);
     }
   };
 
   // Prevent FOUC - don't render until mounted
   if (!mounted) {
     return (
-      <div className="app-layout">
+      <div className="app-layout min-h-screen bg-[var(--bg-cream)]">
         <header className="app-header">
           <div className="header-left">
             <Link href="/" className="app-logo">The Shelf</Link>
@@ -143,36 +108,21 @@ function HomeContent() {
           <div className="header-right">
             <div className="auth-links">
               <Link href="/login" className="header-link">Sign In</Link>
-              <Link href="/register" className="header-link primary">Get Started</Link>
             </div>
           </div>
         </header>
-        <div className="app-main">
-          <aside className="chat-sidebar" />
-          <Shelf />
-          <MainArea />
+        <div className="app-main flex-1">
+          <main className="content-area flex-1">
+            <MainArea />
+          </main>
         </div>
-        <style jsx>{`${getStyles()}`}</style>
       </div>
     );
   }
 
   return (
-    <div className="app-layout">
+    <div className="app-layout min-h-screen bg-[var(--bg-cream)]">
       <header className="app-header">
-        <button
-          className="sidebar-toggle"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label={sidebarOpen ? "Close chat" : "Open chat"}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            {sidebarOpen ? (
-              <path d="M9 18l6-6-6-6"/>
-            ) : (
-              <path d="M15 18l-6-6 6-6"/>
-            )}
-          </svg>
-        </button>
         <div className="header-left">
           <Link href="/" className="app-logo">The Shelf</Link>
         </div>
@@ -209,241 +159,54 @@ function HomeContent() {
                 </svg>
                 Sign In
               </Link>
-              <Link href="/register" className="header-link primary">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <line x1="12" y1="5" x2="12" y2="19"/>
-                  <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Get Started
-              </Link>
             </div>
           )}
         </div>
       </header>
-      <div className="app-main">
-        <aside className={`chat-sidebar ${sidebarOpen ? "open" : "closed"}`}>
-          <div className="sidebar-header">
-            <h3>Claude Assistant</h3>
-            <p className="sidebar-subtitle">Ask about your book, get writing help, or brainstorm ideas</p>
+      <div className="app-main flex-1">
+        <main className="content-area flex-1">
+          <MainArea />
+        </main>
+      </div>
+      <div className="chat-invitation">
+        <div className="chat-invitation-bubble" aria-hidden="true">
+          <span className="chat-invitation-icon">✦</span>
+          <span>Chat with Sheldon AI</span>
+          <span className="chat-invitation-arrow">↓</span>
+        </div>
+        <span className="chat-pulse-light" aria-hidden="true" />
+        <button className="chat-launcher" type="button" onClick={() => setIsChatOpen(true)} aria-label="Open writing desk">
+          <span aria-hidden="true">✦</span> Writing desk
+        </button>
+      </div>
+      {isChatOpen && (
+        <aside className="writing-desk" aria-label="Writing desk">
+          <div className="writing-desk-header">
+            <div><span className="writing-desk-kicker">QUIET ASSISTANCE</span><h2>Writing desk</h2></div>
+            <button type="button" onClick={() => setIsChatOpen(false)} aria-label="Close writing desk">×</button>
           </div>
-          <div className="sidebar-messages" ref={messagesEndRef}>
-            {chatMessages.length === 0 && (
-              <div className="welcome-message">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                <h4>Hi! I'm Claude, your writing assistant.</h4>
-                <p>I can help you with your book, answer questions, or brainstorm ideas. What would you like to do?</p>
-                <div className="quick-actions">
-                  <button className="quick-action" onClick={() => setChatInput("Help me brainstorm chapter ideas for my book")}>
-                    <span>💡</span> Brainstorm chapters
-                  </button>
-                  <button className="quick-action" onClick={() => setChatInput("Review my current chapter and suggest improvements")}>
-                    <span>✍️</span> Review my writing
-                  </button>
-                  <button className="quick-action" onClick={() => setChatInput("Explain the difference between writing styles")}>
-                    <span>📚</span> Explain styles
-                  </button>
-                  <button className="quick-action" onClick={() => setChatInput("Help me write a compelling book description")}>
-                    <span>📖</span> Book description
-                  </button>
-                </div>
-              </div>
-            )}
-            {chatMessages.map((msg, idx) => (
-              <div key={idx} className={`message ${msg.role}`}>
-                <div className="message-avatar">
-                  {msg.role === "user" ? (
-                    <span>{user?.name?.charAt(0).toUpperCase() || "U"}</span>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                      <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/>
-                      <path d="M9 11l3 3 7-7"/>
-                    </svg>
-                  )}
-                </div>
-                <div className="message-content">
-                  <div className="message-text">{formatMessage(msg.content)}</div>
-                  {msg.role === "assistant" && isStreaming && idx === chatMessages.length - 1 && (
-                    <span className="typing-indicator">
-                      <span></span><span></span><span></span>
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="writing-desk-messages">
+            {chatMessages.length === 0 && <p className="writing-desk-empty">Ask for a structural idea, a clearer angle, or a thoughtful edit.</p>}
+            {chatMessages.map((message, index) => <div key={index} className={`desk-message ${message.role}`}>{message.content || (isChatStreaming ? "..." : "")}</div>)}
+            <div ref={messagesEndRef} />
           </div>
-          <form onSubmit={handleSendMessage} className="sidebar-input-form">
-            <div className="input-wrapper">
-              <textarea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask Claude anything about your book..."
-                rows={1}
-                disabled={isStreaming}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage(e);
-                  }
-                }}
-              />
-            </div>
-            <button
-              type="submit"
-              className="send-button"
-              disabled={!chatInput.trim() || isStreaming}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
+          <form className="writing-desk-form" onSubmit={handleSendMessage}>
+            <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about your book..." rows={2} disabled={isChatStreaming} />
+            <button type="submit" disabled={!chatInput.trim() || isChatStreaming}>Send</button>
           </form>
         </aside>
-        <Shelf />
-        <MainArea />
-      </div>
-
-      <style jsx>{`${getStyles()}`}</style>
+      )}
     </div>
   );
 }
 
-function buildBookContext(state: any): string {
-  const parts: string[] = [];
-
-  if (state.config) {
-    parts.push(`Book: "${state.config.title || "Untitled"}"`);
-    parts.push(`Topic: ${state.config.topic}`);
-    parts.push(`Category: ${state.config.bookCategory}`);
-    parts.push(`Audience: ${state.config.targetAudience}`);
-    parts.push(`Style: ${state.config.writingStyle || "Conversational"}`);
-    parts.push(`Tone: ${state.config.tone || "Friendly"}`);
-  }
-
-  if (state.concept) {
-    parts.push(`\nConcept:`);
-    parts.push(`Title: ${state.concept.title}`);
-    parts.push(`Subtitle: ${state.concept.subtitle}`);
-    parts.push(`Chapters: ${state.concept.chapters.map((c: any, i: number) => `${i+1}. ${c.title}`).join(", ")}`);
-  }
-
-  if (state.chapters.length > 0) {
-    parts.push(`\nCurrent Progress:`);
-    state.chapters.forEach((ch: any, i: number) => {
-      if (ch.content) {
-        parts.push(`Chapter ${i+1} (${ch.title}): ${ch.content.length} chars written`);
-      }
-    });
-  }
-
-  return parts.join("\n");
-}
-
-function getSystemPrompt(context: string): string {
-  return `You are Claude, an expert writing assistant integrated into "The Shelf" - an AI-powered book creation platform.
-
-Current Book Context:
-${context || "No book configured yet."}
-
-Your role:
-- Help users with their book: brainstorming, outlining, writing, editing
-- Answer questions about writing craft, structure, style
-- Provide feedback on their content
-- Suggest improvements and alternatives
-- Be encouraging but honest
-
-Guidelines:
-- Keep responses concise but helpful
-- Use markdown for formatting when appropriate
-- Reference their specific book context when relevant
-- If they ask about something outside writing, politely redirect
-- Don't generate full chapters - this platform handles that separately`;
-}
-
-function formatMessage(content: string): React.ReactNode {
-  // Parse markdown-like content with code blocks
-  const lines = content.split('\n');
-  const nodes: React.ReactNode[] = [];
-  let inCodeBlock = false;
-  let codeBlockLang = '';
-  let codeBuffer: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith('```')) {
-      if (!inCodeBlock) {
-        inCodeBlock = true;
-        codeBlockLang = trimmed.slice(3).trim();
-        codeBuffer = [];
-      } else {
-        inCodeBlock = false;
-        nodes.push(
-          <pre key={`code-${i}`} className="code-block">
-            <code className={codeBlockLang ? `language-${codeBlockLang}` : ''}>
-              {codeBuffer.join('\n')}
-            </code>
-          </pre>
-        );
-        codeBuffer = [];
-        codeBlockLang = '';
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBuffer.push(line);
-      continue;
-    }
-
-    // Handle inline formatting
-    if (line.trim() === '') {
-      nodes.push(<br key={i} />);
-      continue;
-    }
-
-    const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/);
-    const formatted = parts.map((part, j) => {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        return <strong key={j}>{part.slice(2, -2)}</strong>;
-      }
-      if (part.startsWith("*") && part.endsWith("*") && part.length > 1) {
-        return <em key={j}>{part.slice(1, -1)}</em>;
-      }
-      if (part.startsWith("`") && part.endsWith("`")) {
-        return <code key={j} className="inline-code">{part.slice(1, -1)}</code>;
-      }
-      return <span key={j}>{part}</span>;
-    });
-    nodes.push(<div key={i} className="message-line">{formatted}</div>);
-  }
-
-  return <div className="formatted-message">{nodes}</div>;
-}
-
 function getStyles() {
   return `
-    /* CSS Variables */
+    /* CSS Variables - alias variables for legacy component compatibility */
     :global(:root) {
-      --ink: #1a1a1a;
-      --ink-soft: #5a5a5a;
-      --ink-faint: #9a9a9a;
-      --paper: #ffffff;
-      --paper-soft: #fafafa;
-      --paper-deep: #f5f5f0;
-      --line: #e8e8e0;
-      --accent-forest: #3b5d50;
-      --accent-forest-dark: #2d4a3f;
-      --accent-gold: #c8a63a;
-      --accent-rust: #b84a2e;
-      --accent-forest-light: rgba(59, 93, 80, 0.08);
-      --accent-rust-light: rgba(184, 74, 46, 0.08);
-      --display: 'Cormorant Garamond', Georgia, serif;
-      --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --display: var(--font-display);
+      --body: var(--font-body);
+      --mono: var(--font-mono);
     }
 
     /* Layout */
@@ -451,7 +214,7 @@ function getStyles() {
       display: flex;
       flex-direction: column;
       min-height: 100vh;
-      background: var(--paper);
+      background: var(--bg-cream);
     }
 
     /* Header */
@@ -462,7 +225,7 @@ function getStyles() {
       height: 64px;
       padding: 0 32px;
       background: var(--paper);
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--border-tan);
       position: sticky;
       top: 0;
       z-index: 100;
@@ -618,19 +381,19 @@ function getStyles() {
       overflow: hidden;
     }
 
-    /* Chat Sidebar - Claude Code Style */
+    /* Chat Sidebar — dark editorial theme per DESIGN_SPECS.md */
     .chat-sidebar {
       width: 380px;
       min-width: 380px;
       max-width: 380px;
-      background: #1a1a2e;
-      border-right: 1px solid #2d2d44;
+      background: var(--dark-bg);
+      border-right: 1px solid var(--dark-border);
       display: flex;
       flex-direction: column;
       transition: all 0.3s ease;
       z-index: 50;
-      color: #e8e8f0;
-      font-family: var(--mono);
+      color: var(--dark-text);
+      font-family: var(--font-mono);
       font-size: 13px;
     }
 
@@ -644,17 +407,17 @@ function getStyles() {
 
     .sidebar-header {
       padding: 16px 20px;
-      border-bottom: 1px solid #2d2d44;
+      border-bottom: 1px solid var(--dark-border);
       flex-shrink: 0;
-      background: #161628;
+      background: var(--dark-panel);
     }
 
     .sidebar-header h3 {
       margin: 0 0 4px;
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 12px;
       font-weight: 600;
-      color: #8b8bb0;
+      color: var(--dark-muted);
       text-transform: uppercase;
       letter-spacing: 0.1em;
     }
@@ -662,7 +425,7 @@ function getStyles() {
     .sidebar-subtitle {
       margin: 0;
       font-size: 11px;
-      color: #666688;
+      color: var(--dark-muted);
     }
 
     .sidebar-messages {
@@ -675,29 +438,30 @@ function getStyles() {
     }
 
     .welcome-message {
-      color: #8b8bb0;
+      color: var(--dark-muted);
       padding: 20px 0;
       text-align: left;
     }
 
     .welcome-message svg {
-      color: #4a9eff;
+      color: var(--dark-text);
       margin-bottom: 16px;
-      opacity: 0.8;
+      opacity: 0.6;
     }
 
     .welcome-message h4 {
       margin: 0 0 8px;
-      font-family: var(--mono);
-      font-size: 14px;
+      font-family: var(--font-display);
+      font-size: 16px;
       font-weight: 600;
-      color: #e8e8f0;
+      color: var(--dark-text);
     }
 
     .welcome-message p {
       margin: 0 0 20px;
       font-size: 13px;
       line-height: 1.6;
+      color: var(--dark-muted);
     }
 
     .quick-actions {
@@ -712,20 +476,20 @@ function getStyles() {
       gap: 10px;
       padding: 10px 14px;
       background: transparent;
-      border: 1px solid #2d2d44;
-      border-radius: 6px;
+      border: 1px solid var(--dark-border);
+      border-radius: 4px;
       font-size: 12px;
-      color: #a0a0c0;
+      color: var(--dark-muted);
       cursor: pointer;
       transition: all 0.15s ease;
       text-align: left;
-      font-family: var(--mono);
+      font-family: var(--font-mono);
     }
 
     .quick-action:hover {
-      background: rgba(74, 158, 255, 0.1);
-      border-color: #4a9eff;
-      color: #4a9eff;
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--dark-text);
+      color: var(--dark-text);
     }
 
     .message {
@@ -746,20 +510,20 @@ function getStyles() {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 600;
       flex-shrink: 0;
     }
 
     .message.user .message-avatar {
-      background: #4a9eff;
-      color: #1a1a2e;
+      background: var(--dark-text);
+      color: var(--dark-bg);
     }
 
     .message.assistant .message-avatar {
-      background: linear-gradient(135deg, #4a9eff, #7c4dff);
-      color: white;
+      background: var(--dark-text);
+      color: var(--dark-bg);
     }
 
     .message-content {
@@ -777,26 +541,26 @@ function getStyles() {
 
     .formatted-message strong {
       font-weight: 600;
-      color: #e8e8f0;
+      color: var(--dark-text);
     }
 
     .formatted-message em {
       font-style: italic;
-      color: #c0c0d0;
+      color: var(--dark-muted);
     }
 
     .inline-code {
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 12px;
-      background: rgba(255,255,255,0.08);
+      background: rgba(255, 255, 255, 0.08);
       padding: 1px 6px;
       border-radius: 3px;
-      color: #ffd700;
+      color: var(--dark-text);
     }
 
     .code-block {
-      background: #0d0d1a;
-      border: 1px solid #2d2d44;
+      background: var(--dark-panel);
+      border: 1px solid var(--dark-border);
       border-radius: 6px;
       padding: 12px;
       margin: 8px 0;
@@ -804,10 +568,10 @@ function getStyles() {
     }
 
     .code-block code {
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 11px;
       line-height: 1.5;
-      color: #e8e8f0;
+      color: var(--dark-text);
     }
 
     .typing-indicator {
@@ -820,7 +584,7 @@ function getStyles() {
       width: 5px;
       height: 5px;
       border-radius: 50%;
-      background: #4a9eff;
+      background: var(--dark-text);
       opacity: 0.4;
       animation: typing 1.4s infinite ease-in-out;
     }
@@ -837,8 +601,8 @@ function getStyles() {
       display: flex;
       gap: 10px;
       padding: 16px 20px;
-      border-top: 1px solid #2d2d44;
-      background: #161628;
+      border-top: 1px solid var(--dark-border);
+      background: var(--dark-panel);
       flex-shrink: 0;
     }
 
@@ -851,12 +615,12 @@ function getStyles() {
       min-height: 44px;
       max-height: 120px;
       padding: 12px 14px;
-      border: 1px solid #2d2d44;
-      border-radius: 6px;
-      background: #0d0d1a;
-      font-family: var(--mono);
+      border: 1px solid var(--dark-border);
+      border-radius: 4px;
+      background: var(--dark-bg);
+      font-family: var(--font-mono);
       font-size: 13px;
-      color: #e8e8f0;
+      color: var(--dark-text);
       line-height: 1.5;
       resize: none;
       transition: all 0.15s ease;
@@ -864,13 +628,13 @@ function getStyles() {
 
     .input-wrapper textarea:focus {
       outline: none;
-      border-color: #4a9eff;
-      box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
-      background: #161628;
+      border-color: var(--dark-text);
+      box-shadow: 0 0 0 2px rgba(232, 232, 240, 0.1);
+      background: var(--dark-panel);
     }
 
     .input-wrapper textarea::placeholder {
-      color: #666688;
+      color: var(--dark-placeholder);
     }
 
     .input-wrapper textarea:disabled {
@@ -882,9 +646,9 @@ function getStyles() {
       width: 44px;
       height: 44px;
       border: none;
-      background: #4a9eff;
-      color: #1a1a2e;
-      border-radius: 6px;
+      background: var(--dark-text);
+      color: var(--dark-bg);
+      border-radius: 4px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -894,7 +658,7 @@ function getStyles() {
     }
 
     .send-button:hover:not(:disabled) {
-      background: #5aafff;
+      background: var(--dark-muted);
       transform: scale(1.02);
     }
 
@@ -904,37 +668,108 @@ function getStyles() {
       transform: none;
     }
 
-    /* Responsive */
+    /* Content Area (Right Side) */
+    .content-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* Mobile Chat Toggle */
+    .mobile-chat-toggle {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
+      border: none;
+      background: var(--dark-text);
+      color: var(--dark-bg);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(43, 43, 38, 0.2);
+      z-index: 90;
+      transition: all 0.2s ease;
+    }
+
+    .mobile-chat-toggle:hover {
+      background: var(--dark-muted);
+      transform: scale(1.05);
+      box-shadow: 0 6px 20px rgba(43, 43, 38, 0.3);
+    }
+
+    .chat-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 20px;
+      height: 20px;
+      background: #ff3b30;
+      color: white;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    /* Two-Column Layout for Desktop */
+    @media (min-width: 1025px) {
+      .app-main {
+        display: flex;
+        flex-direction: row;
+      }
+
+      .chat-sidebar {
+        position: relative;
+        width: 380px;
+        min-width: 380px;
+        max-width: 380px;
+        height: calc(100vh - 64px);
+      }
+
+      .chat-sidebar.closed {
+        width: 0;
+        min-width: 0;
+        max-width: 0;
+      }
+    }
+
+    /* Tablet and Mobile */
     @media (max-width: 1024px) {
       .chat-sidebar {
         position: fixed;
         left: 0;
         top: 64px;
         bottom: 0;
+        width: 380px;
+        min-width: 380px;
+        max-width: 380px;
         z-index: 100;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.3);
       }
 
       .chat-sidebar.closed {
         transform: translateX(-100%);
-        width: 380px;
-        min-width: 380px;
-        max-width: 380px;
-        border-right: 1px solid var(--line);
       }
 
       .chat-sidebar.open {
         transform: translateX(0);
       }
 
-      .sidebar-toggle {
-        display: flex;
+      .content-area {
+        width: 100%;
       }
-    }
 
-    @media (min-width: 1025px) {
-      .sidebar-toggle {
-        display: none;
+      .mobile-chat-toggle {
+        display: flex;
       }
     }
 

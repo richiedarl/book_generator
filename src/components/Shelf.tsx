@@ -105,7 +105,7 @@ export function Shelf() {
         }
 
         .shelf-title {
-          font-family: var(--mono);
+          font-family: var(--font-mono);
           font-size: 11px;
           letter-spacing: 0.14em;
           text-transform: uppercase;
@@ -114,7 +114,7 @@ export function Shelf() {
         }
 
         .shelf-book-title {
-          font-family: var(--display);
+          font-family: var(--font-display);
           font-size: 20px;
           line-height: 1.25;
           margin: 0 0 2px;
@@ -122,7 +122,7 @@ export function Shelf() {
         }
 
         .shelf-book-sub {
-          font-family: var(--body);
+          font-family: var(--font-body);
           font-style: italic;
           font-size: 13px;
           color: var(--ink-soft);
@@ -150,7 +150,7 @@ export function Shelf() {
           padding: 11px 12px 12px;
           cursor: pointer;
           position: relative;
-          box-shadow: 1px 2px 0 rgba(34, 48, 43, 0.04);
+          box-shadow: 1px 2px 0 rgba(43, 43, 38, 0.04);
           transition: transform 0.12s ease, border-color 0.12s ease;
         }
 
@@ -167,7 +167,7 @@ export function Shelf() {
 
         .card.active {
           border-left-color: var(--accent-forest);
-          background: #fff;
+          background: var(--input-fill);
         }
 
         .card.done {
@@ -175,14 +175,14 @@ export function Shelf() {
         }
 
         .card .num {
-          font-family: var(--mono);
+          font-family: var(--font-mono);
           font-size: 10px;
           color: var(--ink-faint);
           letter-spacing: 0.08em;
         }
 
         .card .title {
-          font-family: var(--display);
+          font-family: var(--font-display);
           font-size: 14px;
           line-height: 1.3;
           margin-top: 3px;
@@ -190,7 +190,7 @@ export function Shelf() {
         }
 
         .card .status {
-          font-family: var(--mono);
+          font-family: var(--font-mono);
           font-size: 9.5px;
           text-transform: uppercase;
           letter-spacing: 0.08em;

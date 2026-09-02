@@ -56,8 +56,8 @@ export default function RegisterPage() {
 
   if (!mounted) {
     return (
-      <div className="auth-page">
-        <div className="auth-container">
+      <div className="auth-page min-h-screen bg-[var(--bg-cream)]">
+        <div className="auth-container w-full max-w-[420px] border border-[var(--border-tan)] bg-[var(--input-fill)]">
           <div className="auth-header">
             <Link href="/" className="auth-logo">The Shelf</Link>
             <h1>Create your account</h1>
@@ -90,8 +90,8 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-container">
+    <div className="auth-page min-h-screen bg-[var(--bg-cream)]">
+      <div className="auth-container w-full max-w-[420px] border border-[var(--border-tan)] bg-[var(--input-fill)]">
         <div className="auth-header">
           <Link href="/" className="auth-logo">The Shelf</Link>
           <h1>Create your account</h1>
@@ -212,22 +212,17 @@ function getStyles() {
       align-items: center;
       justify-content: center;
       padding: 40px 20px;
-      background: var(--paper-soft);
-      background-image:
-        radial-gradient(circle at 20% 80%, rgba(59, 93, 80, 0.04) 0%, transparent 50%),
-        radial-gradient(circle at 80% 20%, rgba(200, 166, 58, 0.04) 0%, transparent 50%);
+      background: var(--bg-cream);
     }
 
     .auth-container {
       width: 100%;
       max-width: 420px;
-      background: var(--paper);
-      border: 1px solid var(--line);
-      border-radius: 20px;
+      background: var(--input-fill);
+      border: 1px solid var(--border-tan);
+      border-radius: 12px;
       padding: 48px 40px;
-      box-shadow:
-        0 1px 3px rgba(34, 48, 43, 0.05),
-        0 8px 32px rgba(34, 48, 43, 0.08);
+      box-shadow: 0 4px 24px rgba(43, 43, 38, 0.06);
     }
 
     .auth-header {
@@ -237,9 +232,9 @@ function getStyles() {
 
     .auth-logo {
       display: inline-block;
-      font-family: var(--display);
+      font-family: var(--font-display);
       font-size: 32px;
-      color: var(--ink);
+      color: var(--text-main);
       text-decoration: none;
       font-weight: 600;
       letter-spacing: -0.02em;
@@ -247,15 +242,15 @@ function getStyles() {
     }
 
     .auth-header h1 {
-      font-family: var(--display);
+      font-family: var(--font-display);
       font-size: 28px;
-      color: var(--ink);
+      color: var(--text-main);
       margin: 0 0 8px;
       font-weight: 600;
     }
 
     .auth-header p {
-      color: var(--ink-soft);
+      color: var(--text-muted);
       margin: 0;
       font-size: 16px;
     }
@@ -301,11 +296,11 @@ function getStyles() {
     }
 
     .form-group label {
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 11px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--ink-soft);
+      color: var(--accent-olive);
       font-weight: 500;
     }
 
@@ -318,7 +313,7 @@ function getStyles() {
       left: 14px;
       top: 50%;
       transform: translateY(-50%);
-      color: var(--ink-faint);
+      color: var(--placeholder);
       pointer-events: none;
       transition: color 0.15s ease;
     }
@@ -326,34 +321,34 @@ function getStyles() {
     .form-group input {
       width: 100%;
       padding: 14px 16px 14px 48px;
-      border: 1.5px solid var(--line);
-      border-radius: 10px;
-      background: var(--paper);
-      font-family: var(--body);
+      border: 1.5px solid var(--border-tan);
+      border-radius: 8px;
+      background: var(--input-fill);
+      font-family: var(--font-body);
       font-size: 15px;
-      color: var(--ink);
+      color: var(--text-main);
       transition: all 0.15s ease;
     }
 
     .form-group input::placeholder {
-      color: var(--ink-faint);
+      color: var(--placeholder);
     }
 
     .form-group input:focus {
       outline: none;
-      border-color: var(--accent-forest);
-      box-shadow: 0 0 0 3px rgba(59, 93, 80, 0.12);
+      border-color: var(--accent-olive);
+      box-shadow: 0 0 0 3px rgba(92, 107, 79, 0.12);
     }
 
     .form-group input:focus + .input-icon,
     .form-group:focus-within .input-icon {
-      color: var(--accent-forest);
+      color: var(--accent-olive);
     }
 
     .form-group input:disabled {
       opacity: 0.5;
       cursor: not-allowed;
-      background: var(--paper-soft);
+      background: var(--bg-cream);
     }
 
     .btn-primary {
@@ -363,11 +358,11 @@ function getStyles() {
       justify-content: center;
       gap: 10px;
       padding: 16px 24px;
-      background: var(--accent-forest);
-      color: white;
+      background: var(--text-main);
+      color: var(--bg-cream);
       border: none;
-      border-radius: 10px;
-      font-family: var(--mono);
+      border-radius: 8px;
+      font-family: var(--font-mono);
       font-size: 12px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
@@ -378,22 +373,10 @@ function getStyles() {
       overflow: hidden;
     }
 
-    .btn-primary::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
-      opacity: 0;
-      transition: opacity 0.15s ease;
-    }
-
     .btn-primary:hover:not(:disabled) {
+      background: #1E1E1A;
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(59, 93, 80, 0.3);
-    }
-
-    .btn-primary:hover:not(:disabled)::before {
-      opacity: 1;
+      box-shadow: 0 6px 24px rgba(43, 43, 38, 0.2);
     }
 
     .btn-primary:active:not(:disabled) {
@@ -418,12 +401,12 @@ function getStyles() {
     .auth-footer {
       text-align: center;
       margin-top: 28px;
-      color: var(--ink-soft);
+      color: var(--text-muted);
       font-size: 15px;
     }
 
     .auth-footer a {
-      color: var(--accent-forest);
+      color: var(--accent-olive);
       text-decoration: none;
       font-weight: 600;
       position: relative;
@@ -445,25 +428,6 @@ function getStyles() {
     .auth-footer a:hover::after {
       transform: scaleX(1);
       transform-origin: left;
-    }
-
-    /* Global CSS variables */
-    :global(:root) {
-      --ink: #1a1a1a;
-      --ink-soft: #5a5a5a;
-      --ink-faint: #9a9a9a;
-      --paper: #ffffff;
-      --paper-soft: #fafafa;
-      --paper-deep: #f5f5f0;
-      --line: #e8e8e0;
-      --accent-forest: #3b5d50;
-      --accent-gold: #c8a63a;
-      --accent-rust: #b84a2e;
-      --accent-forest-light: rgba(59, 93, 80, 0.08);
-      --accent-rust-light: rgba(184, 74, 46, 0.08);
-      --display: 'Cormorant Garamond', Georgia, serif;
-      --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      --mono: 'JetBrains Mono', 'Fira Code', monospace;
     }
   `;
 }

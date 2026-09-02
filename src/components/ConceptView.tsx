@@ -12,26 +12,26 @@ interface ConceptViewProps {
 
 export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
   const { actions } = useBook();
-  const [claudeAvailable, setClaudeAvailable] = useState<boolean | null>(null);
+  const [serviceAvailable, setServiceAvailable] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
 
-  // Check Claude availability when the component mounts
+  // Check service availability when the component mounts
   useEffect(() => {
-    checkClaude();
+    checkAvailability();
   }, []);
 
-  async function checkClaude() {
+  async function checkAvailability() {
     setChecking(true);
     try {
       const response = await fetch("/api/check-claude");
       if (!response.ok) {
-        setClaudeAvailable(false);
+        setServiceAvailable(false);
         return;
       }
       const data = await response.json();
-      setClaudeAvailable(data.claude?.configured ?? false);
+      setServiceAvailable(data.claude?.configured ?? false);
     } catch {
-      setClaudeAvailable(false);
+      setServiceAvailable(false);
     } finally {
       setChecking(false);
     }
@@ -82,15 +82,15 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
             </div>
           )}
 
-          {claudeAvailable === false && !checking && (
+          {!serviceAvailable && !checking && (
             <div className="error-box">
-              ⚠️ <b>Claude is not configured.</b> Add an <code>ANTHROPIC_API_KEY</code>
-              to your environment to generate books. See <code>.env.example</code> for details.
+              ⚠️ <b>The writing service is not configured.</b> Please contact an administrator or check your <code>ANTHROPIC_API_KEY</code>
+              environment variable. See <code>.env.example</code> for details.
             </div>
           )}
 
-          {claudeAvailable === null && checking && (
-            <p style={{ fontSize: "13px", color: "var(--ink-soft)" }}>Checking Claude availability…</p>
+          {!serviceAvailable && checking && (
+            <p style={{ fontSize: "13px", color: "var(--ink-soft)" }}>Checking service availability…</p>
           )}
         </div>
 
@@ -98,16 +98,16 @@ export function ConceptView({ config, concept, onGenerate }: ConceptViewProps) {
           <button
             className="btn"
             onClick={onGenerate}
-            disabled={!isReady || !claudeAvailable || checking}
+            disabled={!isReady || !serviceAvailable || checking}
             title={
               !isReady
                 ? "Fill in topic and category first"
-                : claudeAvailable === false
-                ? "Claude API key not configured"
+                : !serviceAvailable
+                ? "Service not configured"
                 : undefined
             }
           >
-            {checking ? "Checking…" : claudeAvailable === false ? "Claude Not Configured" : "Generate Book"}
+            {checking ? "Checking…" : !serviceAvailable ? "Service Not Configured" : "Generate Book"}
           </button>
           <button className="btn-ghost" onClick={() => actions.startNewBook()}>
             Start Over
