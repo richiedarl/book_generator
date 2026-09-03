@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const reference = searchParams.get('reference');
-  const trxref = searchParams('trxref');
+  const trxref = searchParams.get('trxref');
 
   if (!reference || !trxref || reference !== trxref) {
     return NextResponse.redirect('/');

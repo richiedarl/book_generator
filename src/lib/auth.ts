@@ -187,7 +187,7 @@ const INFINITE_USES_THRESHOLD = 999999;
 
 export interface TokenValidationResult {
   valid: boolean;
-  usesRemaining?: number; // null means infinite
+  usesRemaining?: number | null; // null means infinite
   error?: string;
 }
 
