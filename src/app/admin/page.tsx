@@ -41,6 +41,14 @@ function formatDate(ts: number) {
   });
 }
 
+function formatCurrency(cents: number, currency: string) {
+  const amount = cents / 100;
+  if (currency === 'ngn') {
+    return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  }
+  return `$${amount.toFixed(2)}`;
+}
+
 export default function AdminDashboardPage() {
   const [tokens, setTokens] = useState<AccessTokenInfo[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -91,15 +99,24 @@ export default function AdminDashboardPage() {
   const admins = users.filter(u => u.isAdmin);
   const regularUsers = users.filter(u => !u.isAdmin);
   const totalTokenUses = tokens.reduce((sum, t) => sum + t.used_count, 0);
-  const totalTokenCapacity = tokens.reduce((sum, t) => sum + t.max_uses, 0);
   const activeTokens = tokens.filter(t => {
     const usesLeft = t.max_uses - t.used_count;
     const notExpired = t.expires_at ? Date.now() < t.expires_at : true;
     return usesLeft > 0 && notExpired;
   });
 
-  const revenueDollars = payments ? (payments.totalRevenue / 100).toFixed(2) : "0.00";
+  const ngnRevenue = payments?.payments
+    .filter((p: any) => p.currency === 'ngn' && p.status === 'completed')
+    .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
+  const usdRevenue = payments?.payments
+    .filter((p: any) => p.currency === 'usd' && p.status === 'completed')
+    .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
+
+  const ngnCount = payments?.payments.filter((p: any) => p.currency === 'ngn').length || 0;
+  const usdCount = payments?.payments.filter((p: any) => p.currency === 'usd').length || 0;
+
   const tokenTypeCount = (type: string) => tokens.filter(t => t.type === type).length;
+  const infiniteTokens = tokens.filter(t => t.max_uses >= 999999).length;
 
   return (
     <div className="admin-dashboard">
@@ -114,21 +131,27 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="stat-card">
-          <div className="stat-value">${revenueDollars}</div>
-          <div className="stat-label">Revenue Earned</div>
-          <div className="stat-sub">{payments?.paymentCount || 0} payment{payments?.paymentCount === 1 ? '' : 's'} (USD)</div>
+          <div className="stat-value">{formatCurrency(ngnRevenue, 'ngn')}</div>
+          <div className="stat-label">Revenue Earned (NGN)</div>
+          <div className="stat-sub">{ngnCount} payment{ngnCount === 1 ? '' : 's'}</div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-value">{formatCurrency(usdRevenue, 'usd')}</div>
+          <div className="stat-label">Revenue Earned (USD)</div>
+          <div className="stat-sub">{usdCount} payment{usdCount === 1 ? '' : 's'}</div>
         </div>
 
         <div className="stat-card">
           <div className="stat-value">{activeTokens.length}</div>
           <div className="stat-label">Active Tokens</div>
-          <div className="stat-sub">{tokenTypeCount('purchase')} purchased · {tokenTypeCount('email')} email</div>
+          <div className="stat-sub">{tokenTypeCount('purchase')} purchased · {tokenTypeCount('email')} email · {infiniteTokens} unlimited</div>
         </div>
 
         <div className="stat-card">
           <div className="stat-value">{totalTokenUses}</div>
           <div className="stat-label">Generations Used</div>
-          <div className="stat-sub">out of {totalTokenCapacity} capacity</div>
+          <div className="stat-sub">Total usage across all tokens</div>
         </div>
       </section>
 
@@ -150,6 +173,11 @@ export default function AdminDashboardPage() {
             <span className="quick-icon">💰</span>
             <span className="quick-title">View Payments</span>
             <span className="quick-desc">Review all token purchase payments</span>
+          </Link>
+          <Link href="/admin/pricing" className="quick-card">
+            <span className="quick-icon">💲</span>
+            <span className="quick-title">Pricing Settings</span>
+            <span className="quick-desc">Configure token price, currency, and limits</span>
           </Link>
         </div>
       </section>
@@ -177,7 +205,7 @@ export default function AdminDashboardPage() {
                   <td><code>{t.token.substring(0, 20)}…</code></td>
                   <td className="capitalize">{t.type}</td>
                   <td>{t.email || "—"}</td>
-                  <td>{t.max_uses - t.used_count} / {t.max_uses}</td>
+                  <td>{t.max_uses >= 999999 ? '∞ Unlimited' : `${t.max_uses - t.used_count} / ${t.max_uses}`}</td>
                   <td>{t.expires_at ? formatDate(t.expires_at) : "No expiry"}</td>
                   <td>{formatDate(t.created_at)}</td>
                 </tr>

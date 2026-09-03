@@ -63,8 +63,12 @@ export default function AdminPaymentsPage() {
     });
   };
 
-  const formatCurrency = (cents: number) => {
-    return `$${(cents / 100).toFixed(2)}`;
+  const formatCurrency = (cents: number, currency: string) => {
+    const amount = cents / 100;
+    if (currency === 'ngn') {
+      return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    }
+    return `$${amount.toFixed(2)}`;
   };
 
   if (isLoading) {
@@ -75,10 +79,12 @@ export default function AdminPaymentsPage() {
     );
   }
 
-  const revenueDollars = (totalRevenue / 100).toFixed(2);
-  const completedPayments = payments.filter(p => p.status === 'completed');
-  const pendingPayments = payments.filter(p => p.status === 'pending');
-  const failedPayments = payments.filter(p => p.status === 'failed');
+  // Group by currency for display
+  const ngnPayments = payments.filter(p => p.currency === 'ngn');
+  const usdPayments = payments.filter(p => p.currency === 'usd');
+
+  const ngnRevenue = ngnPayments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
+  const usdRevenue = usdPayments.filter(p => p.status === 'completed').reduce((sum, p) => sum + p.amount, 0);
 
   return (
     <div className="admin-page">
@@ -92,18 +98,18 @@ export default function AdminPaymentsPage() {
       {/* Summary cards */}
       <section className="dashboard-cards">
         <div className="stat-card">
-          <div className="stat-value">${revenueDollars}</div>
-          <div className="stat-label">Total Revenue</div>
-          <div className="stat-sub">{paymentCount} payment{paymentCount === 1 ? '' : 's'} · {completedPayments.length} completed</div>
+          <div className="stat-value">{formatCurrency(ngnRevenue, 'ngn')}</div>
+          <div className="stat-label">Total Revenue (NGN)</div>
+          <div className="stat-sub">{ngnPayments.length} payment{ngnPayments.length === 1 ? '' : 's'}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{pendingPayments.length}</div>
+          <div className="stat-value">{formatCurrency(usdRevenue, 'usd')}</div>
+          <div className="stat-label">Total Revenue (USD)</div>
+          <div className="stat-sub">{usdPayments.length} payment{usdPayments.length === 1 ? '' : 's'}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{payments.filter(p => p.status === 'pending').length}</div>
           <div className="stat-label">Pending</div>
-          <div className="stat-sub">{formatCurrency(pendingPayments.reduce((sum, p) => sum + p.amount, 0))} USD equivalent</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-value">{failedPayments.length}</div>
-          <div className="stat-label">Failed</div>
           <div className="stat-sub">requires attention</div>
         </div>
       </section>
@@ -120,6 +126,7 @@ export default function AdminPaymentsPage() {
                 <tr>
                   <th>Date</th>
                   <th>Amount</th>
+                  <th>Currency</th>
                   <th>Status</th>
                   <th>Provider</th>
                   <th>Token Type</th>
@@ -131,7 +138,8 @@ export default function AdminPaymentsPage() {
                 {payments.map((p) => (
                   <tr key={p.id}>
                     <td>{formatDate(p.createdAt)}</td>
-                    <td>{formatCurrency(p.amount)}</td>
+                    <td>{formatCurrency(p.amount, p.currency)}</td>
+                    <td>{p.currency.toUpperCase()}</td>
                     <td>
                       <span className={`role-badge ${p.status === 'completed' ? 'admin' : p.status === 'pending' ? 'user' : ''} status-${p.status}`}>
                         {p.status}

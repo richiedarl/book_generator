@@ -182,9 +182,12 @@ export { hashPassword, generateAccessToken };
 
 // === Access Token Management (token-based usage tracking) ===
 
+// Threshold for infinite uses - tokens with max_uses >= this are considered infinite
+const INFINITE_USES_THRESHOLD = 999999;
+
 export interface TokenValidationResult {
   valid: boolean;
-  usesRemaining?: number;
+  usesRemaining?: number; // null means infinite
   error?: string;
 }
 
@@ -201,8 +204,9 @@ export function validateUsageToken(token: string): TokenValidationResult {
     return { valid: false, error: 'Email token has already been used' };
   }
 
-  // Check if token has exceeded max uses
-  if (result.used_count >= result.max_uses) {
+  // Check if token has exceeded max uses (skip for infinite tokens)
+  const isInfinite = result.max_uses >= INFINITE_USES_THRESHOLD;
+  if (!isInfinite && result.used_count >= result.max_uses) {
     return { valid: false, error: 'Token has reached maximum uses' };
   }
 
@@ -211,7 +215,7 @@ export function validateUsageToken(token: string): TokenValidationResult {
     return { valid: false, error: 'Token has expired' };
   }
 
-  const usesRemaining = result.max_uses - result.used_count;
+  const usesRemaining = isInfinite ? null : result.max_uses - result.used_count;
   return { valid: true, usesRemaining };
 }
 
@@ -227,7 +231,8 @@ export function recordTokenUsage(token: string): { success: boolean; usesRemaini
     return { success: false, error: 'Email token has already been used' };
   }
 
-  if (result.used_count >= result.max_uses) {
+  const isInfinite = result.max_uses >= INFINITE_USES_THRESHOLD;
+  if (!isInfinite && result.used_count >= result.max_uses) {
     return { success: false, error: 'Token has reached maximum uses' };
   }
 
@@ -235,7 +240,7 @@ export function recordTokenUsage(token: string): { success: boolean; usesRemaini
     return { success: false, error: 'Token has expired' };
   }
 
-  // Increment usage
+  // Increment usage (even for infinite tokens, we track the count)
   const stmt = db.prepare(`
     UPDATE access_tokens
     SET used_count = used_count + 1,

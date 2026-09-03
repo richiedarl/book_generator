@@ -18,8 +18,21 @@ interface AccessTokenInfo {
   created_at: number;
 }
 
+interface PricingConfig {
+  purchaseTokenPriceCents: number;
+  purchaseTokenCurrency: 'ngn' | 'usd';
+  purchaseTokenUses: number;
+  purchaseTokenExpiryDays: number;
+}
+
 export default function AdminTokensPage() {
   const [tokens, setTokens] = useState<AccessTokenInfo[]>([]);
+  const [pricing, setPricing] = useState<PricingConfig>({
+    purchaseTokenPriceCents: 4900,
+    purchaseTokenCurrency: 'ngn',
+    purchaseTokenUses: 20,
+    purchaseTokenExpiryDays: 30,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -33,6 +46,7 @@ export default function AdminTokensPage() {
 
   useEffect(() => {
     loadTokens();
+    loadPricing();
   }, []);
 
   const loadTokens = async () => {
@@ -54,6 +68,35 @@ export default function AdminTokensPage() {
     }
   };
 
+  const loadPricing = async () => {
+    try {
+      const response = await fetch("/api/admin/pricing");
+      const data = await response.json();
+      if (response.ok) {
+        setPricing(data.pricing);
+      }
+    } catch (err) {
+      console.error("Failed to load pricing:", err);
+    }
+  };
+
+  const formatCurrency = (cents: number, currency: 'ngn' | 'usd') => {
+    const amount = cents / 100;
+    if (currency === 'ngn') {
+      return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+    }
+    return `$${amount.toFixed(2)}`;
+  };
+
+  const getPriceLabel = () => {
+    return formatCurrency(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency);
+  };
+
+  const getUsesDisplay = (max: number, used: number) => {
+    if (max >= 999999) return '∞ Unlimited';
+    return `${max - used} / ${max}`;
+  };
+
   const handleCreateToken = async () => {
     setTokenCreating(true);
     setError("");
@@ -72,14 +115,31 @@ export default function AdminTokensPage() {
       const data = await response.json();
 
       if (!response.ok) {
+        if (response.status === 402) {
+          throw new Error(data.error || "Payment provider not configured");
+        }
         throw new Error(data.error || "Failed to create token");
       }
 
       setCreatedToken(data.token);
-      const suffix = data.free
-        ? `Free token — ${data.usesRemaining} uses remaining, expires ${new Date(data.expiresAt).toLocaleString()}`
-        : `Token created — ${data.usesRemaining} uses remaining, expires ${new Date(data.expiresAt).toLocaleString()}`;
-      setSuccess(suffix);
+
+      let suffix = "";
+      if (data.infiniteUses) {
+        suffix = "Unlimited generations";
+      } else {
+        suffix = `${data.usesRemaining} uses remaining`;
+      }
+
+      if (data.expiresAt) {
+        suffix += `, expires ${new Date(data.expiresAt).toLocaleString()}`;
+      }
+
+      if (data.free) {
+        setSuccess(`Free token created — ${suffix}`);
+      } else {
+        setSuccess(`Token created (${getPriceLabel()}) — ${suffix}`);
+      }
+
       await loadTokens();
     } catch (err: any) {
       setError(err.message || "Failed to create token");
@@ -140,9 +200,11 @@ export default function AdminTokensPage() {
       <section className="admin-section">
         <h2>Purchased Tokens</h2>
         <p className="section-help">
-          Tokens allow configurable generations and expire after a configurable period.
-          Admins can also create tokens for free (no payment recorded).
-          Each paid purchase is recorded in the Payments section.
+          Each paid purchase records a payment in the Payments section.
+          Admins can create tokens for free using the "Free Token" checkbox below.
+          Current price: {getPriceLabel()} ({pricing.purchaseTokenCurrency === 'ngn' ? '₦ NGN' : '$ USD'})
+          <br />
+          Current generation limit per token: {pricing.purchaseTokenUses <= 0 ? '∞ Unlimited' : pricing.purchaseTokenUses} (set in <Link href="/admin/pricing" style={{ color: 'var(--accent-olive)' }}>Pricing</Link>)
         </p>
 
         <div className="section-actions">
@@ -150,7 +212,7 @@ export default function AdminTokensPage() {
             onClick={() => { setShowTokenModal(true); setCreatedToken(""); setTokenEmail(""); setFreeToken(false); setError(""); setSuccess(""); }}
             className="btn btn-primary"
           >
-            Create New Token
+            Create New Token ({getPriceLabel()})
           </button>
           {createdToken && (
             <div className="token-result">
@@ -194,7 +256,7 @@ export default function AdminTokensPage() {
                       </span>
                     </td>
                     <td>{token.email || "—"}</td>
-                    <td>{token.max_uses - token.used_count} / {token.max_uses}</td>
+                    <td>{getUsesDisplay(token.max_uses, token.used_count)}</td>
                     <td>{token.expires_at ? formatDate(token.expires_at) : "No expiry"}</td>
                     <td>{formatDate(token.created_at)}</td>
                     <td>
@@ -244,8 +306,9 @@ export default function AdminTokensPage() {
                   <span>Free Token (Admin Only)</span>
                 </label>
                 <p className="form-hint">
-                  When checked, creates a token at no cost with no payment recorded.
-                  Only available to admins.
+                  {freeToken
+                    ? `Create a ${getPriceLabel()} token at no cost (no payment recorded).`
+                    : `Create a ${getPriceLabel()} token. A payment will be recorded.`}
                 </p>
               </div>
 
@@ -262,7 +325,7 @@ export default function AdminTokensPage() {
                   onClick={handleCreateToken}
                   disabled={tokenCreating}
                 >
-                  {tokenCreating ? "Creating…" : freeToken ? "Create Free Token" : "Create Paid Token"}
+                  {tokenCreating ? "Creating…" : freeToken ? "Create Free Token" : `Create Paid Token (${getPriceLabel()})`}
                 </button>
               </div>
             </div>

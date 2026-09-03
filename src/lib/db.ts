@@ -94,6 +94,18 @@ export function initializeDatabase() {
     db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_price_cents', String(PURCHASE_TOKEN_PRICE_CENTS));
   }
 
+  const currencyConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_currency');
+  if (!currencyConfig) {
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_currency', 'ngn');
+  }
+
+  const paystackKeyConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_secret_key');
+  if (!paystackKeyConfig) {
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_secret_key', '');
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_public_key', '');
+    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_webhook_secret', '');
+  }
+
   const usesConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses');
   if (!usesConfig) {
     db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_uses', String(DEFAULT_PURCHASE_USES));
@@ -480,19 +492,34 @@ export function deleteAccessToken(id: string): boolean {
 
 export interface PricingConfig {
   purchaseTokenPriceCents: number;
-  purchaseTokenUses: number;
+  purchaseTokenCurrency: 'ngn' | 'usd';
+  purchaseTokenUses: number; // 0 or negative means infinite
   purchaseTokenExpiryDays: number;
+  paystackSecretKey: string;
+  paystackPublicKey: string;
+  paystackWebhookSecret: string;
+  paymentProvider: 'paystack' | 'none';
 }
 
 export function getPricingConfig(): PricingConfig {
   const price = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_price_cents') as { value: string } | undefined;
+  const currency = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_currency') as { value: string } | undefined;
   const uses = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses') as { value: string } | undefined;
   const expiry = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_expiry_days') as { value: string } | undefined;
+  const sk = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_secret_key') as { value: string } | undefined;
+  const pk = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_public_key') as { value: string } | undefined;
+  const wh = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_webhook_secret') as { value: string } | undefined;
+  const provider = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('payment_provider') as { value: string } | undefined;
 
   return {
     purchaseTokenPriceCents: price ? parseInt(price.value, 10) : PURCHASE_TOKEN_PRICE_CENTS,
+    purchaseTokenCurrency: (currency?.value as 'ngn' | 'usd') || 'ngn',
     purchaseTokenUses: uses ? parseInt(uses.value, 10) : DEFAULT_PURCHASE_USES,
     purchaseTokenExpiryDays: expiry ? parseInt(expiry.value, 10) : DEFAULT_EXPIRY_DAYS,
+    paystackSecretKey: sk?.value || '',
+    paystackPublicKey: pk?.value || '',
+    paystackWebhookSecret: wh?.value || '',
+    paymentProvider: (provider?.value as 'paystack' | 'none') || 'none',
   };
 }
 
@@ -500,11 +527,26 @@ export function setPricingConfig(config: Partial<PricingConfig>) {
   if (config.purchaseTokenPriceCents !== undefined) {
     db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenPriceCents), 'purchase_token_price_cents');
   }
+  if (config.purchaseTokenCurrency !== undefined) {
+    db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(config.purchaseTokenCurrency, 'purchase_token_currency');
+  }
   if (config.purchaseTokenUses !== undefined) {
     db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenUses), 'purchase_token_uses');
   }
   if (config.purchaseTokenExpiryDays !== undefined) {
     db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenExpiryDays), 'purchase_token_expiry_days');
+  }
+  if (config.paystackSecretKey !== undefined) {
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_secret_key', config.paystackSecretKey);
+  }
+  if (config.paystackPublicKey !== undefined) {
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_public_key', config.paystackPublicKey);
+  }
+  if (config.paystackWebhookSecret !== undefined) {
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_webhook_secret', config.paystackWebhookSecret);
+  }
+  if (config.paymentProvider !== undefined) {
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('payment_provider', config.paymentProvider);
   }
 }
 

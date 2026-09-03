@@ -338,7 +338,8 @@
 
   /* Pricing page */
   .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-  .currency-input { font-family: var(--font-mono); }
+  .currency-input-wrapper { display: flex; gap: 8px; }
+  .currency-input-wrapper select { flex-shrink: 0; min-width: 80px; }
   .form-actions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-tan); }
   .config-display { background: var(--bg-cream); border: 1px solid var(--border-tan); border-radius: 8px; padding: 20px; max-width: 400px; }
   .config-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-tan); }

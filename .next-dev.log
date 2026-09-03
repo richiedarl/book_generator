@@ -6,10 +6,43 @@
 - Local:         http://localhost:3000
 - Network:       http://192.168.0.175:3000
 - Environments: .env.local
-✓ Ready in 1039ms
+✓ Ready in 8.9s
 ⚠ Warning: Next.js ignored package-lock.json in C:\Users\USER\Desktop\Client side because it is outside the current Git repository (C:\Users\USER\Desktop\Client side\psychology-book-builder).
  To use this directory, set `turbopack.root` in your Next.js config.
 
-✓ Running next.config.ts took 75ms
+✓ Running next.config.ts took 379ms
 
-[?25h
+○ Compiling / ...
+ GET / 200 in 23.5s (next.js: 22.5s, application-code: 1002ms)
+✅ Database initialized
+ GET /api/pricing 200 in 342ms (next.js: 153ms, application-code: 189ms)
+ GET /api/config 200 in 481ms (next.js: 458ms, application-code: 23ms)
+ GET /api/auth/me 200 in 658ms (next.js: 588ms, application-code: 69ms)
+ GET /api/pricing 200 in 26ms (next.js: 11ms, application-code: 15ms)
+ GET /api/config 200 in 45ms (next.js: 30ms, application-code: 14ms)
+ GET /api/auth/me 200 in 44ms (next.js: 27ms, application-code: 17ms)
+ GET /api/auth/me 200 in 22ms (next.js: 6ms, application-code: 16ms)
+ GET /api/auth/me 200 in 22ms (next.js: 7ms, application-code: 15ms)
+[browser] Error restoring session i: Failed to connect to MetaMask
+    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:7:84292) (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:4:10741)
+[browser] Error restoring session i: Failed to connect to MetaMask
+    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:7:84292) (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:17:4697)
+[browser] ⨯ unhandledRejection: i: Failed to connect to MetaMask
+    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:7:84292)
+[browser] ⨯ unhandledRejection: i: Failed to connect to MetaMask
+    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/scripts/inpage.js:7:84292)
+ GET /admin 200 in 154ms (next.js: 83ms, application-code: 71ms)
+ GET /api/auth/me 200 in 52ms (next.js: 28ms, application-code: 24ms)
+ GET /api/auth/me 200 in 41ms (next.js: 9ms, application-code: 33ms)
+ GET /api/tokens/purchase 200 in 411ms (next.js: 104ms, application-code: 307ms)
+ GET /api/admin/payments 200 in 422ms (next.js: 229ms, application-code: 193ms)
+ GET /api/admin/users 200 in 423ms (next.js: 357ms, application-code: 66ms)
+ GET /api/admin/payments 200 in 164ms (next.js: 39ms, application-code: 125ms)
+ GET /api/admin/users 200 in 171ms (next.js: 100ms, application-code: 71ms)
+ GET /api/tokens/purchase 200 in 179ms (next.js: 140ms, application-code: 39ms)
+ GET /admin/pricing 200 in 132ms (next.js: 90ms, application-code: 42ms)
+ GET /api/admin/pricing 200 in 140ms (next.js: 114ms, application-code: 26ms)
+ GET /api/admin/pricing 200 in 58ms (next.js: 7ms, application-code: 51ms)
+ GET /admin/pricing 200 in 58ms (next.js: 14ms, application-code: 44ms)
+ GET /admin/pricing 200 in 53ms (next.js: 17ms, application-code: 35ms)
+ GET /admin/pricing 200 in 46ms (next.js: 14ms, application-code: 33ms)
