@@ -35,6 +35,7 @@ export default function AdminPricingPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showSecretKey, setShowSecretKey] = useState(false);
+  const [priceAmount, setPriceAmount] = useState("49.00");
 
   useEffect(() => {
     loadPricing();
@@ -52,6 +53,7 @@ export default function AdminPricingPage() {
       }
 
       setPricing(data.pricing);
+  setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
     } catch (err: any) {
       setError(err.message || "Failed to load pricing");
     } finally {
@@ -60,6 +62,12 @@ export default function AdminPricingPage() {
   };
 
   const handleSave = async () => {
+    const amount = Number.parseFloat(priceAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Enter a valid token price.");
+      return;
+    }
+
     setSaving(true);
     setError("");
     setSuccess("");
@@ -68,7 +76,10 @@ export default function AdminPricingPage() {
       const response = await fetch("/api/admin/pricing", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pricing),
+        body: JSON.stringify({
+          ...pricing,
+          purchaseTokenPriceCents: Math.round(amount * 100),
+        }),
       });
 
       const data = await response.json();
@@ -78,6 +89,7 @@ export default function AdminPricingPage() {
       }
 
       setPricing(data.pricing);
+  setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
       setSuccess("Pricing saved successfully");
     } catch (err: any) {
       setError(err.message || "Failed to save pricing");
@@ -141,14 +153,15 @@ export default function AdminPricingPage() {
                 type="number"
                 id="price"
                 min="0"
-                step="1"
-                value={pricing.purchaseTokenPriceCents}
-                onChange={(e) => setPricing({ ...pricing, purchaseTokenPriceCents: parseInt(e.target.value, 10) || 0 })}
+                step="0.01"
+                value={priceAmount}
+                onChange={(e) => setPriceAmount(e.target.value)}
                 className="currency-input"
+                aria-label={`Token price in ${pricing.purchaseTokenCurrency === 'ngn' ? 'Naira' : 'US dollars'}`}
               />
             </div>
             <p className="form-hint">
-              Price in {pricing.purchaseTokenCurrency === 'ngn' ? 'Naira' : 'USD'} cents.
+              Enter the token price in {pricing.purchaseTokenCurrency === 'ngn' ? 'Naira' : 'US dollars'}.
               Current: {formatCurrency(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency)}
             </p>
           </div>
@@ -331,16 +344,25 @@ export default function AdminPricingPage() {
           gap: 8px;
         }
         .currency-input-wrapper select {
-          flex-shrink: 0;
-          min-width: 100px;
+          flex: 0 0 170px;
+          width: 170px;
+          min-width: 0;
         }
-        .currency-input-wrapper input {
-          flex: 1;
+        .currency-input-wrapper .currency-input {
+          flex: 1 1 auto;
+          width: auto;
+          min-width: 0;
         }
         .form-hint-row {
           display: flex;
           align-items: center;
           margin-top: 8px;
+        }
+        @media (max-width: 640px) {
+          .currency-input-wrapper select {
+            flex-basis: 145px;
+            width: 145px;
+          }
         }
       `}</style>
     </div>
