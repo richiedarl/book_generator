@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { userId, userEmail, free } = body;
+    const isFree = free === true;
 
     const adminUser = await getSessionUser();
     if (!adminUser || !adminUser.isAdmin) {
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
     // If this is a paid token (not free), verify payment provider is set up
     const paymentConfigured = pricing.paymentProvider === 'paystack' && !!pricing.paystackSecretKey;
 
-    if (!free && !paymentConfigured) {
+    if (!isFree && !paymentConfigured) {
       return NextResponse.json(
         {
           error: 'Payment provider is not configured. An admin must configure Paystack in the Pricing settings before creating paid tokens.',
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
     let paymentRecorded = false;
     let paymentLink = null;
 
-    if (!free) {
+    if (!isFree) {
       amount = pricing.purchaseTokenPriceCents;
 
       if (paymentConfigured) {
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
       paymentProvider: pricing.paymentProvider,
       paymentLink,
       paymentRecorded,
-      free: !!free,
+      free: isFree,
     });
   } catch (err: any) {
     console.error('Error creating purchase token:', err);

@@ -8,6 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { getPricingConfig, setPricingConfig } from '@/lib/db';
 
+const MASKED_SECRET_PREFIX = '••••••••';
+
 export async function GET() {
   try {
     const user = await getSessionUser();
@@ -82,9 +84,9 @@ export async function PATCH(request: NextRequest) {
   // Validate uses
   if (purchaseTokenUses !== undefined) {
     // 0 or negative means infinite usage
-    if (!Number.isInteger(purchaseTokenUses) || purchaseTokenUses < 0) {
+    if (!Number.isInteger(purchaseTokenUses)) {
       return NextResponse.json(
-        { error: 'purchaseTokenUses must be 0 (unlimited) or a positive integer' },
+        { error: 'purchaseTokenUses must be an integer; 0 or negative means unlimited' },
         { status: 400 }
       );
     }
@@ -110,14 +112,18 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  const currentPricing = getPricingConfig();
+  const preserveMaskedSecret = (value: unknown, currentValue: string) =>
+    typeof value === 'string' && value.startsWith(MASKED_SECRET_PREFIX) ? currentValue : value;
+
   setPricingConfig({
     purchaseTokenPriceCents,
     purchaseTokenCurrency,
     purchaseTokenUses,
     purchaseTokenExpiryDays,
-    paystackSecretKey,
+    paystackSecretKey: preserveMaskedSecret(paystackSecretKey, currentPricing.paystackSecretKey),
     paystackPublicKey,
-    paystackWebhookSecret,
+    paystackWebhookSecret: preserveMaskedSecret(paystackWebhookSecret, currentPricing.paystackWebhookSecret),
     paymentProvider,
   });
 
