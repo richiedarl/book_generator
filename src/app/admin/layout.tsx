@@ -84,7 +84,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     { href: "/admin", label: "Dashboard", icon: "◆" },
     { href: "/admin/tokens", label: "Token Management", icon: "🔑" },
     { href: "/admin/users", label: "User Management", icon: "👥" },
-    { href: "/admin/payments", label: "Received Payments", icon: "💰" },
+    { href: "/admin/payments", label: "Payments", icon: "💰" },
+    { href: "/admin/payment-settings", label: "Payment Settings", icon: "⚙" },
     { href: "/admin/pricing", label: "Pricing", icon: "💲" },
   ];
 

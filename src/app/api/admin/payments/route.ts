@@ -1,67 +1,61 @@
 /**
- * Admin Payments API
- * Lists payment records so admins can review revenue from token purchases.
+ * Admin Payments API.
+ *
+ * Returns every payment record with the fields an administrator needs to
+ * verify manual bank transfers: the submitted reference, the status, who
+ * confirmed it and when, the issued token, and the token delivery status.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
-import { getAllPayments, getAllAccessTokens } from '@/lib/db';
+import { getAllPayments } from '@/lib/db';
+import { toAdminPaymentView } from '@/lib/payment-view';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const user = await getSessionUser();
 
     if (!user || !user.isAdmin) {
-      return NextResponse.json(
-        { error: 'Admin access required' },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const tokenIdFilter = searchParams.get('tokenId');
+    const payments = getAllPayments();
 
-    let payments = getAllPayments();
+    const pending = payments.filter((payment) => payment.status === 'pending');
+    const confirmed = payments.filter((payment) => payment.status === 'completed');
+    const rejected = payments.filter((payment) => payment.status === 'rejected');
 
-    if (tokenIdFilter) {
-      payments = payments.filter(p => p.token_id === tokenIdFilter);
+    const deliveredTokens = confirmed.filter(
+      (payment) => payment.token_delivery_status === 'delivered'
+    ).length;
+    const undeliveredTokens = confirmed.filter(
+      (payment) =>
+        payment.token_delivery_status === 'failed' ||
+        payment.token_delivery_status === 'manual' ||
+        payment.token_delivery_status === 'pending_delivery'
+    ).length;
+
+    // Revenue is grouped by currency; amounts are stored in major units.
+    const revenueByCurrency: Record<string, number> = {};
+    for (const payment of confirmed) {
+      revenueByCurrency[payment.currency] =
+        (revenueByCurrency[payment.currency] ?? 0) + payment.amount;
     }
-
-    // Enrich payments with token details (type, email, user name)
-    const tokens = getAllAccessTokens();
-    const tokenMap = new Map(tokens.map(t => [t.id, t]));
-
-    const enriched = payments.map(p => {
-      const token = tokenMap.get(p.token_id);
-      return {
-        id: p.id,
-        token: p.token_id ? tokenMap.get(p.token_id)?.token?.substring(0, 20) + '...' : null,
-        tokenType: token?.type ?? null,
-        userEmail: p.email ?? token?.email ?? null,
-        userId: p.user_id ?? token?.user_id ?? null,
-        amount: p.amount,
-        currency: p.currency,
-        status: p.status,
-        provider: p.provider,
-        providerPaymentId: p.provider_payment_id,
-        createdAt: p.created_at,
-      };
-    });
-
-    const totalRevenue = payments
-      .filter(p => p.status === 'completed')
-      .reduce((sum, p) => sum + p.amount, 0);
 
     return NextResponse.json({
-      payments: enriched,
-      totalRevenue,
-      paymentCount: payments.length,
+      payments: payments.map(toAdminPaymentView),
+      summary: {
+        total: payments.length,
+        pending: pending.length,
+        confirmed: confirmed.length,
+        rejected: rejected.length,
+        deliveredTokens,
+        undeliveredTokens,
+        revenueByCurrency,
+      },
     });
   } catch (err: any) {
     console.error('Admin payments GET error:', err);
-    return NextResponse.json(
-      { error: 'Failed to fetch payments' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 });
   }
 }

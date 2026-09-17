@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { BookProvider, useBook } from "@/context/BookContext";
 import { MainArea } from "@/components/MainArea";
+import { Attachment } from "@/lib/types";
+import { ATTACHMENT_ACCEPT, readAttachmentFile } from "@/lib/attachment-reader";
 
 export default function Home() {
   return (
@@ -19,7 +21,11 @@ function HomeContent() {
   const [mounted, setMounted] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string; attachments?: Attachment[] }[]>([]);
+  const [chatAttachment, setChatAttachment] = useState<Attachment | null>(null);
+  const [chatAttachmentWarning, setChatAttachmentWarning] = useState("");
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const [chatConversationId] = useState(() => globalThis.crypto?.randomUUID?.() ?? `desk-${Date.now()}`);
   const [isChatStreaming, setIsChatStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -54,9 +60,11 @@ function HomeContent() {
     event.preventDefault();
     const message = chatInput.trim();
     if (!message || isChatStreaming) return;
+    const outgoingAttachments = chatAttachment ? [chatAttachment] : undefined;
 
     setChatInput("");
-    setChatMessages((current) => [...current, { role: "user", content: message }, { role: "assistant", content: "" }]);
+    setChatAttachment(null);
+    setChatMessages((current) => [...current, { role: "user", content: message, attachments: outgoingAttachments }, { role: "assistant", content: "" }]);
     setIsChatStreaming(true);
 
     try {
@@ -67,8 +75,9 @@ function HomeContent() {
           messages: [
             { role: "system", content: "You are a concise writing assistant for The Shelf book studio. Help with book planning, structure, and writing craft. Do not generate full chapters." },
             ...chatMessages,
-            { role: "user", content: message },
+            { role: "user", content: message, attachments: outgoingAttachments },
           ],
+          conversationId: chatConversationId,
         }),
       });
       if (!response.ok || !response.body) throw new Error("Unable to reach the writing desk");
@@ -95,6 +104,14 @@ function HomeContent() {
     } finally {
       setIsChatStreaming(false);
     }
+  };
+
+  const handleChatFile = async (file: File | undefined) => {
+    if (!file) return;
+    const result = await readAttachmentFile(file);
+    setChatAttachmentWarning(result.warning ?? "");
+    if (result.attachment.content || result.attachment.base64) setChatAttachment(result.attachment);
+    if (chatFileInputRef.current) chatFileInputRef.current.value = "";
   };
 
   // Prevent FOUC - don't render until mounted
@@ -187,12 +204,21 @@ function HomeContent() {
           </div>
           <div className="writing-desk-messages">
             {chatMessages.length === 0 && <p className="writing-desk-empty">Ask for a structural idea, a clearer angle, or a thoughtful edit.</p>}
-            {chatMessages.map((message, index) => <div key={index} className={`desk-message ${message.role}`}>{message.content || (isChatStreaming ? "..." : "")}</div>)}
+            {chatMessages.map((message, index) => <div key={index} className={`desk-message ${message.role}`}>
+              {message.attachments?.map((attachment) => <div key={attachment.id} className="desk-attachment">Attached: {attachment.name}</div>)}
+              {message.content || (isChatStreaming ? "..." : "")}
+            </div>)}
             <div ref={messagesEndRef} />
           </div>
           <form className="writing-desk-form" onSubmit={handleSendMessage}>
             <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about your book..." rows={2} disabled={isChatStreaming} />
-            <button type="submit" disabled={!chatInput.trim() || isChatStreaming}>Send</button>
+            {chatAttachment && <div className="desk-attachment-preview"><span>{chatAttachment.name}</span><button type="button" onClick={() => setChatAttachment(null)} aria-label="Remove attachment">Remove</button></div>}
+            {chatAttachmentWarning && <p className="desk-attachment-warning">{chatAttachmentWarning}</p>}
+            <div className="writing-desk-actions">
+              <input ref={chatFileInputRef} type="file" accept={ATTACHMENT_ACCEPT} className="hidden" onChange={(event) => handleChatFile(event.target.files?.[0])} disabled={isChatStreaming} />
+              <button type="button" onClick={() => chatFileInputRef.current?.click()} disabled={isChatStreaming}>Attach file</button>
+              <button type="submit" disabled={!chatInput.trim() || isChatStreaming}>Send</button>
+            </div>
           </form>
         </aside>
       )}

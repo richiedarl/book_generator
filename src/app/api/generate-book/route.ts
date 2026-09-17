@@ -237,6 +237,8 @@ function buildConceptPrompt(config: BookConfig): string {
   if (config.writingStyle) parts.push(`Writing Style: ${config.writingStyle}`);
   if (config.tone) parts.push(`Tone: ${config.tone}`);
   if (config.desiredLength) parts.push(`Desired Length: ${config.desiredLength}`);
+  if (config.themes) parts.push(`Themes: ${config.themes}`);
+  if (config.chapterSubtitles !== undefined) parts.push(`Chapter subtitles: ${config.chapterSubtitles ? 'yes' : 'no'}`);
   if (config.additionalInstructions) parts.push(`Additional Guidance: ${config.additionalInstructions}`);
 
   if (config.numberOfChapters && config.numberOfChapters > 0) {

@@ -54,12 +54,14 @@ export async function generateBook(
 
     // Stage 2: Manuscript Generation
     onProgress({ type: "stage", stage: "Manuscript Generation", status: "running" });
-    const chapters = await generateAllChapters(concept, plan, onProgress);
+    const chapters = await generateAllChapters(config, concept, plan, onProgress);
     onProgress({ type: "stage_complete", stage: "Manuscript Generation" });
 
     // Stage 3: Generate Image Instructions (Claude creates prompts for all images)
     onProgress({ type: "stage", stage: "Image Planning", status: "running" });
-    const imageInstructions = await generateImageInstructions(config, concept, chapters, config.numberOfImages || 0, onProgress);
+    const imagesPerChapter = config.imagesPerChapter || 0;
+    const imageCount = imagesPerChapter > 0 ? 1 + imagesPerChapter * chapters.length : 0;
+    const imageInstructions = await generateImageInstructions(config, concept, chapters, imageCount, onProgress);
     onProgress({ type: "stage_complete", stage: "Image Planning" });
 
     // Stage 4: Image Generation (optional - controlled by config.imageGeneration)
@@ -241,7 +243,7 @@ function buildImageInstructionsPrompt(
     `Chapter ${i + 1}: "${ch.title}"\nSummary: ${ch.description}\nContent preview: ${(ch.content || "").slice(0, 500)}...`
   ).join("\n\n");
 
-  const imagesPerChapter = Math.max(1, Math.floor(numImages / chapters.length));
+  const imagesPerChapter = config.imagesPerChapter || 0;
   const coverImage = 1; // Always reserve 1 for cover
   const remainingImages = numImages - coverImage;
 
@@ -257,7 +259,7 @@ ${chapterSummaries}
 
 Create ${numImages} image instructions:
 1. 1 cover image
-2. ${remainingImages} chapter illustrations (approximately ${imagesPerChapter} per chapter)
+2. ${remainingImages} chapter illustrations (${imagesPerChapter} for each chapter)
 
 Respond with valid JSON only.`;
 }
@@ -285,17 +287,14 @@ function generateFallbackImageInstructions(
   });
 
   // Chapter images
-  const remainingImages = numImages - 1;
+  const imagesPerChapter = config.imagesPerChapter || 0;
   let imgIndex = 1;
 
-  for (let i = 0; i < chapters.length && imgIndex <= remainingImages; i++) {
+  for (let i = 0; i < chapters.length && imgIndex < numImages; i++) {
     const ch = chapters[i];
-    const content = ch.content || "";
+    const count = Math.min(imagesPerChapter, numImages - imgIndex);
 
-    // Generate 1-2 images per chapter
-    const count = Math.min(2, remainingImages - imgIndex + 1);
-
-    for (let j = 0; j < count && imgIndex <= remainingImages; j++) {
+    for (let j = 0; j < count && imgIndex < numImages; j++) {
       instructions.push({
         id: `ch${i + 1}_${j + 1}`,
         placement: j === 0 ? "chapter-start" : "inline",
@@ -316,6 +315,7 @@ function generateFallbackImageInstructions(
 }
 
 async function generateAllChapters(
+  config: BookConfig,
   concept: BookConcept,
   plan: BookPlan,
   onProgress: ProgressCallback
@@ -338,7 +338,7 @@ async function generateAllChapters(
       .slice(0, i)
       .map((_, idx) => `${idx + 1}. ${concept.chapters[idx].title}`);
 
-    const chapter = await generateSingleChapter(concept, i, priorChapterTitles);
+    const chapter = await generateSingleChapter(config, concept, i, priorChapterTitles);
 
     chapters.push(chapter);
 
@@ -354,11 +354,12 @@ async function generateAllChapters(
 }
 
 async function generateSingleChapter(
+  config: BookConfig,
   concept: BookConcept,
   chapterIndex: number,
   priorChapterTitles: string[]
 ): Promise<BookChapter> {
-  const prompt = getChapterPrompt(concept, chapterIndex);
+  const prompt = getChapterPrompt(concept, chapterIndex, config);
 
   // Use higher maxTokens for longer chapters
   const maxTokens = 8000;

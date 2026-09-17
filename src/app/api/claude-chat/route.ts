@@ -5,13 +5,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicClient } from "@/lib/anthropic/client";
+import { Attachment } from "@/lib/types";
 
 const MASTER_SYSTEM = `You are an expert book writing assistant integrated into "The Shelf" - an AI-powered book creation platform. You help users with brainstorming, outlining, writing, editing, and answering questions about their book project. Be concise, helpful, and encouraging. Use markdown for formatting when appropriate.`;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages } = body;
+    const { messages, conversationId } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Start streaming in background
-    const streamPromise = streamChat(messages, emit);
+    const streamPromise = streamChat(messages, conversationId, emit);
 
     streamPromise.then(() => {
       writer.close();
@@ -57,7 +58,8 @@ export async function POST(request: NextRequest) {
 }
 
 async function streamChat(
-  messages: { role: string; content: string }[],
+  messages: { role: string; content: string; attachments?: Attachment[] }[],
+  conversationId: string | undefined,
   onEmit: (event: any) => void
 ): Promise<void> {
   // Check that Anthropic API key is configured
@@ -84,7 +86,10 @@ async function streamChat(
     .filter(m => m.role === "user" || m.role === "assistant")
     .map(m => ({
       role: m.role as "user" | "assistant",
-      content: m.content
+      content: [
+        ...(m.attachments ?? []).flatMap((attachment) => attachmentBlocks(attachment)),
+        ...(m.content ? [{ type: "text" as const, text: m.content }] : []),
+      ],
     }));
 
   // Get system message if present
@@ -92,7 +97,7 @@ async function streamChat(
 
   try {
     const response = await anthropicClient.callClaude(
-      systemMessage,
+      conversationId ? `${systemMessage}\nConversation session: ${conversationId}` : systemMessage,
       anthropicMessages,
       4000
     );
@@ -102,4 +107,24 @@ async function streamChat(
   } catch (err: any) {
     onEmit({ type: "error", error: err.message });
   }
+}
+
+function attachmentBlocks(attachment: Attachment) {
+  const blocks: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; source: { type: "base64"; media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"; data: string } }
+  > = [];
+
+  if (attachment.content?.trim()) {
+    blocks.push({ type: "text", text: `Attached file: ${attachment.name}\n\n${attachment.content}` });
+  }
+
+  if (attachment.base64) {
+    const match = attachment.base64.match(/^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/);
+    if (match) {
+      blocks.push({ type: "image", source: { type: "base64", media_type: match[1] as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: match[2] } });
+    }
+  }
+
+  return blocks;
 }

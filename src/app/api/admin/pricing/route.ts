@@ -1,40 +1,26 @@
 /**
- * Admin Pricing API
- * Allows admins to view and update token pricing configuration, including
- * Paystack payment provider settings.
+ * Admin Pricing API.
+ *
+ * Controls what a token costs and how much it grants. The business account
+ * that receives transfers is configured separately, under Payment Settings.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { getPricingConfig, setPricingConfig } from '@/lib/db';
 
-const MASKED_SECRET_PREFIX = '••••••••';
-
 export async function GET() {
   try {
     const user = await getSessionUser();
 
     if (!user || !user.isAdmin) {
-      return NextResponse.json(
-        { error: 'Admin access required' },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
-    const pricing = getPricingConfig();
-    // Do not expose the secret key to the client
-    return NextResponse.json({
-      pricing: {
-        ...pricing,
-        paystackSecretKey: pricing.paystackSecretKey ? '••••••••' + pricing.paystackSecretKey.slice(-4) : '',
-      },
-    });
+    return NextResponse.json({ pricing: getPricingConfig() });
   } catch (err: any) {
     console.error('Admin pricing GET error:', err);
-    return NextResponse.json(
-      { error: 'Failed to fetch pricing' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch pricing' }, { status: 500 });
   }
 }
 
@@ -43,103 +29,64 @@ export async function PATCH(request: NextRequest) {
     const user = await getSessionUser();
 
     if (!user || !user.isAdmin) {
-      return NextResponse.json(
-        { error: 'Admin access required' },
-        { status: 403 }
-      );
-  }
-
-  const body = await request.json();
-  const {
-    purchaseTokenPriceCents,
-    purchaseTokenCurrency,
-    purchaseTokenUses,
-    purchaseTokenExpiryDays,
-    paystackSecretKey,
-    paystackPublicKey,
-    paystackWebhookSecret,
-    paymentProvider,
-  } = body;
-
-  // Validate price
-  if (purchaseTokenPriceCents !== undefined) {
-    if (!Number.isInteger(purchaseTokenPriceCents) || purchaseTokenPriceCents < 0) {
-      return NextResponse.json(
-        { error: 'purchaseTokenPriceCents must be a non-negative integer' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
-  }
 
-  // Validate currency
-  if (purchaseTokenCurrency !== undefined) {
-    if (!['ngn', 'usd'].includes(purchaseTokenCurrency)) {
-      return NextResponse.json(
-        { error: 'purchaseTokenCurrency must be ngn or usd' },
-        { status: 400 }
-      );
+    const body = await request.json();
+    const {
+      purchaseTokenPriceCents,
+      purchaseTokenCurrency,
+      purchaseTokenUses,
+      purchaseTokenExpiryDays,
+    } = body;
+
+    if (purchaseTokenPriceCents !== undefined) {
+      if (!Number.isInteger(purchaseTokenPriceCents) || purchaseTokenPriceCents < 0) {
+        return NextResponse.json(
+          { error: 'purchaseTokenPriceCents must be a non-negative integer' },
+          { status: 400 }
+        );
+      }
     }
-  }
 
-  // Validate uses
-  if (purchaseTokenUses !== undefined) {
-    // 0 or negative means infinite usage
-    if (!Number.isInteger(purchaseTokenUses)) {
-      return NextResponse.json(
-        { error: 'purchaseTokenUses must be an integer; 0 or negative means unlimited' },
-        { status: 400 }
-      );
+    if (purchaseTokenCurrency !== undefined) {
+      if (!['ngn', 'usd'].includes(purchaseTokenCurrency)) {
+        return NextResponse.json(
+          { error: 'purchaseTokenCurrency must be ngn or usd' },
+          { status: 400 }
+        );
+      }
     }
-  }
 
-  // Validate expiry
-  if (purchaseTokenExpiryDays !== undefined) {
-    if (!Number.isInteger(purchaseTokenExpiryDays) || purchaseTokenExpiryDays <= 0) {
-      return NextResponse.json(
-        { error: 'purchaseTokenExpiryDays must be a positive integer' },
-        { status: 400 }
-      );
+    if (purchaseTokenUses !== undefined) {
+      // Zero or negative means unlimited usage.
+      if (!Number.isInteger(purchaseTokenUses)) {
+        return NextResponse.json(
+          { error: 'purchaseTokenUses must be an integer; 0 or negative means unlimited' },
+          { status: 400 }
+        );
+      }
     }
-  }
 
-  // Validate payment provider
-  if (paymentProvider !== undefined) {
-    if (!['paystack', 'none'].includes(paymentProvider)) {
-      return NextResponse.json(
-        { error: 'paymentProvider must be "paystack" or "none"' },
-        { status: 400 }
-      );
+    if (purchaseTokenExpiryDays !== undefined) {
+      if (!Number.isInteger(purchaseTokenExpiryDays) || purchaseTokenExpiryDays <= 0) {
+        return NextResponse.json(
+          { error: 'purchaseTokenExpiryDays must be a positive integer' },
+          { status: 400 }
+        );
+      }
     }
-  }
 
-  const currentPricing = getPricingConfig();
-  const preserveMaskedSecret = (value: unknown, currentValue: string) =>
-    typeof value === 'string' && value.startsWith(MASKED_SECRET_PREFIX) ? currentValue : value;
-
-  setPricingConfig({
-    purchaseTokenPriceCents,
-    purchaseTokenCurrency,
-    purchaseTokenUses,
-    purchaseTokenExpiryDays,
-    paystackSecretKey: preserveMaskedSecret(paystackSecretKey, currentPricing.paystackSecretKey),
-    paystackPublicKey,
-    paystackWebhookSecret: preserveMaskedSecret(paystackWebhookSecret, currentPricing.paystackWebhookSecret),
-    paymentProvider,
-  });
-
-  const pricing = getPricingConfig();
-    return NextResponse.json({
-      success: true,
-      pricing: {
-        ...pricing,
-        paystackSecretKey: pricing.paystackSecretKey ? '••••••••' + pricing.paystackSecretKey.slice(-4) : '',
-      },
+    setPricingConfig({
+      purchaseTokenPriceCents,
+      purchaseTokenCurrency,
+      purchaseTokenUses,
+      purchaseTokenExpiryDays,
     });
+
+    return NextResponse.json({ success: true, pricing: getPricingConfig() });
   } catch (err: any) {
     console.error('Admin pricing PATCH error:', err);
-    return NextResponse.json(
-      { error: 'Failed to update pricing' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update pricing' }, { status: 500 });
   }
 }

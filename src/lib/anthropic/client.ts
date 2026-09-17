@@ -1,5 +1,25 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+/** A single piece of a message: plain text, or an image the model can view. */
+export type ClaudeContentBlock =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image';
+      source: {
+        type: 'base64';
+        media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+        data: string;
+      };
+    };
+
+/** Content may be a plain string (the common case) or structured blocks. */
+export type ClaudeContent = string | ClaudeContentBlock[];
+
+export interface ClaudeMessage {
+  role: 'user' | 'assistant';
+  content: ClaudeContent;
+}
+
 // Round-robin key rotation client
 class AnthropicClient {
   private clients: Anthropic[] = [];
@@ -88,7 +108,7 @@ class AnthropicClient {
 
   async callClaude(
     system: string,
-    messages: { role: 'user' | 'assistant'; content: string }[],
+    messages: ClaudeMessage[],
     maxTokens = 4000,
     model: string | null = null
   ): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
@@ -122,7 +142,6 @@ class AnthropicClient {
           .join('\n')
           .trim();
 
-        // Reset error count on success
         this.keyErrors.delete(keyIndex);
 
         return {
@@ -130,28 +149,15 @@ class AnthropicClient {
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
         };
-      } catch (err: any) {
-        const errorMessage = err?.message ?? String(err);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         const isRateLimit =
           errorMessage.includes('rate limit') ||
           errorMessage.includes('429') ||
           errorMessage.includes('Rate-Limited');
 
         lastError = err instanceof Error ? err : new Error(errorMessage);
-
-        if (isRateLimit) {
-          this.recordError(keyIndex, errorMessage, true);
-          // Try next key immediately
-          continue;
-        }
-
-        // Non-rate-limit error — record but don't necessarily retry
-        this.recordError(keyIndex, errorMessage, false);
-
-        if (attempt < maxRetries - 1) {
-          // Try another key
-          continue;
-        }
+        this.recordError(keyIndex, errorMessage, isRateLimit);
       }
     }
 

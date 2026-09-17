@@ -1,41 +1,35 @@
 /**
- * Admin Pricing — manage token pricing, currency, and Paystack payment settings.
- * Auth is handled by the parent admin layout.
+ * Admin Pricing — token price, currency, generation capacity and expiry.
+ * The business account that receives transfers lives under Payment Settings.
  */
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatMinorUnits } from "@/lib/format";
 
 interface PricingConfig {
   purchaseTokenPriceCents: number;
-  purchaseTokenCurrency: 'ngn' | 'usd';
-  purchaseTokenUses: number; // 0 or negative = infinite
+  purchaseTokenCurrency: "ngn" | "usd";
+  purchaseTokenUses: number; // 0 or negative = unlimited
   purchaseTokenExpiryDays: number;
-  paystackSecretKey: string;
-  paystackPublicKey: string;
-  paystackWebhookSecret: string;
-  paymentProvider: 'paystack' | 'none';
 }
 
+const DEFAULT_PRICING: PricingConfig = {
+  purchaseTokenPriceCents: 4900,
+  purchaseTokenCurrency: "ngn",
+  purchaseTokenUses: 20,
+  purchaseTokenExpiryDays: 30,
+};
+
 export default function AdminPricingPage() {
-  const [pricing, setPricing] = useState<PricingConfig>({
-    purchaseTokenPriceCents: 4900,
-    purchaseTokenCurrency: 'ngn',
-    purchaseTokenUses: 20,
-    purchaseTokenExpiryDays: 30,
-    paystackSecretKey: '',
-    paystackPublicKey: '',
-    paystackWebhookSecret: '',
-    paymentProvider: 'none',
-  });
+  const [pricing, setPricing] = useState<PricingConfig>(DEFAULT_PRICING);
+  const [priceAmount, setPriceAmount] = useState("49.00");
   const [isLoading, setIsLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [showSecretKey, setShowSecretKey] = useState(false);
-  const [priceAmount, setPriceAmount] = useState("49.00");
 
   useEffect(() => {
     loadPricing();
@@ -47,13 +41,10 @@ export default function AdminPricingPage() {
     try {
       const response = await fetch("/api/admin/pricing");
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load pricing");
-      }
+      if (!response.ok) throw new Error(data.error || "Failed to load pricing");
 
       setPricing(data.pricing);
-  setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
+      setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
     } catch (err: any) {
       setError(err.message || "Failed to load pricing");
     } finally {
@@ -68,7 +59,7 @@ export default function AdminPricingPage() {
       return;
     }
 
-    setSaving(true);
+    setIsSaving(true);
     setError("");
     setSuccess("");
 
@@ -81,48 +72,42 @@ export default function AdminPricingPage() {
           purchaseTokenPriceCents: Math.round(amount * 100),
         }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to save pricing");
-      }
+      if (!response.ok) throw new Error(data.error || "Failed to save pricing");
 
       setPricing(data.pricing);
-  setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
-      setSuccess("Pricing saved successfully");
+      setPriceAmount((data.pricing.purchaseTokenPriceCents / 100).toFixed(2));
+      setSuccess("Pricing saved successfully.");
     } catch (err: any) {
       setError(err.message || "Failed to save pricing");
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   };
 
-  const formatCurrency = (cents: number, currency: 'ngn' | 'usd') => {
-    const amount = cents / 100;
-    if (currency === 'ngn') {
-      return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
-    }
-    return `$${amount.toFixed(2)}`;
-  };
-
-  const isInfiniteUses = () => pricing.purchaseTokenUses <= 0;
-  const getUsesDisplay = () => isInfiniteUses() ? '∞ Unlimited' : pricing.purchaseTokenUses.toString();
-  const getCostPerGeneration = () => {
-    if (isInfiniteUses()) return '∞';
-    if (pricing.purchaseTokenUses === 0) return '—';
-    return formatCurrency(Math.round(pricing.purchaseTokenPriceCents / pricing.purchaseTokenUses), pricing.purchaseTokenCurrency);
+  const isInfiniteUses = pricing.purchaseTokenUses <= 0;
+  const usesDisplay = isInfiniteUses ? "Unlimited" : String(pricing.purchaseTokenUses);
+  const costPerGeneration = () => {
+    if (isInfiniteUses) return "—";
+    return formatMinorUnits(
+      Math.round(pricing.purchaseTokenPriceCents / pricing.purchaseTokenUses),
+      pricing.purchaseTokenCurrency
+    );
   };
 
   if (isLoading) {
-    return <div className="admin-page"><div className="admin-loading">Loading…</div></div>;
+    return (
+      <div className="admin-page">
+        <div className="admin-loading">Loading…</div>
+      </div>
+    );
   }
 
   return (
     <div className="admin-page">
       <div className="admin-header">
-        <h1>Pricing Management</h1>
-        <p>Configure token pricing, currency, generation capacity, and payment settings.</p>
+        <h1>Pricing</h1>
+        <p>What a token costs and how much it grants.</p>
       </div>
 
       {error && <div className="admin-message error">{error}</div>}
@@ -131,10 +116,10 @@ export default function AdminPricingPage() {
       <section className="admin-section">
         <h2>Purchase Token Settings</h2>
         <p className="section-help">
-          These settings control the price, currency, generation capacity, and validity period
-          of purchased tokens. NGN is the primary currency; USD is available as an alternative.
-          Set generations to 0 or negative for unlimited usage — the token still expires after the
-          expiry period but allows unlimited generations within that window.
+          These settings apply when an administrator confirms a manual payment:
+          the confirmed token is issued with the generation count and validity period below.
+          Set generations to 0 or negative for unlimited usage — the token still expires
+          after the validity period.
         </p>
 
         <div className="form-grid">
@@ -144,196 +129,120 @@ export default function AdminPricingPage() {
               <select
                 id="currency"
                 value={pricing.purchaseTokenCurrency}
-                onChange={(e) => setPricing({ ...pricing, purchaseTokenCurrency: e.target.value as 'ngn' | 'usd' })}
+                onChange={(event) =>
+                  setPricing({
+                    ...pricing,
+                    purchaseTokenCurrency: event.target.value as "ngn" | "usd",
+                  })
+                }
               >
                 <option value="ngn">₦ NGN (Primary)</option>
                 <option value="usd">$ USD (Alternative)</option>
               </select>
               <input
-                type="number"
                 id="price"
+                type="number"
                 min="0"
                 step="0.01"
-                value={priceAmount}
-                onChange={(e) => setPriceAmount(e.target.value)}
                 className="currency-input"
-                aria-label={`Token price in ${pricing.purchaseTokenCurrency === 'ngn' ? 'Naira' : 'US dollars'}`}
+                value={priceAmount}
+                onChange={(event) => setPriceAmount(event.target.value)}
+                aria-label="Token price"
               />
             </div>
             <p className="form-hint">
-              Enter the token price in {pricing.purchaseTokenCurrency === 'ngn' ? 'Naira' : 'US dollars'}.
-              Current: {formatCurrency(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency)}
+              Shown to users as{" "}
+              {formatMinorUnits(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency)}.
+              The exact figure users transfer is set in{" "}
+              <Link href="/admin/payment-settings">Payment Settings</Link>.
             </p>
           </div>
 
           <div className="form-group">
             <label htmlFor="uses">Generations Per Token</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="uses-row">
               <input
-                type="number"
                 id="uses"
+                type="number"
                 min="-1"
                 max="10000"
                 step="1"
                 value={pricing.purchaseTokenUses}
-                onChange={(e) => setPricing({ ...pricing, purchaseTokenUses: parseInt(e.target.value, 10) || 0 })}
-                style={{ flex: 1 }}
+                onChange={(event) =>
+                  setPricing({
+                    ...pricing,
+                    purchaseTokenUses: Number.parseInt(event.target.value, 10) || 0,
+                  })
+                }
               />
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>0 = ∞</span>
+              <span className="uses-hint">0 = unlimited</span>
             </div>
             <p className="form-hint">
-              How many book generations each purchased token allows.
-              Set to 0 for unlimited generations — the token still expires after the validity period.
+              How many book generations each confirmed token allows.
             </p>
           </div>
 
           <div className="form-group">
             <label htmlFor="expiry">Token Expiry (Days)</label>
             <input
-              type="number"
               id="expiry"
+              type="number"
               min="1"
               max="3650"
               step="1"
               value={pricing.purchaseTokenExpiryDays}
-              onChange={(e) => setPricing({ ...pricing, purchaseTokenExpiryDays: parseInt(e.target.value, 10) || 1 })}
+              onChange={(event) =>
+                setPricing({
+                  ...pricing,
+                  purchaseTokenExpiryDays: Number.parseInt(event.target.value, 10) || 1,
+                })
+              }
             />
-            <p className="form-hint">Token validity period after purchase. Unlimited-usage tokens still expire after this period.</p>
+            <p className="form-hint">
+              Validity period after confirmation. Unlimited tokens still expire after this.
+            </p>
           </div>
         </div>
 
         <div className="form-actions">
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save Pricing"}
+          <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Saving…" : "Save Pricing"}
           </button>
         </div>
       </section>
 
-      {/* Paystack Configuration */}
       <section className="admin-section">
-        <h2>Payment Provider: Paystack</h2>
+        <h2>Payment Account</h2>
         <p className="section-help">
-          Configure Paystack to allow users to pay for tokens. Set the payment provider to
-          "paystack" and provide your Paystack secret key. When set to "none", only admins
-          can create free tokens.
+          The business name, account number, bank and instructions users are shown are
+          managed under Payment Settings. Users transfer directly to that account and an
+          administrator confirms each payment from the Payments screen.
         </p>
-
-        <div className="form-grid">
-          <div className="form-group">
-            <label htmlFor="provider">Payment Provider</label>
-            <select
-              id="provider"
-              value={pricing.paymentProvider}
-              onChange={(e) => setPricing({ ...pricing, paymentProvider: e.target.value as 'paystack' | 'none' })}
-            >
-              <option value="none">None (Admin Free Tokens Only)</option>
-              <option value="paystack">Paystack</option>
-            </select>
-            <p className="form-hint">Users can only pay for tokens when a payment provider is configured.</p>
-          </div>
-
-          {pricing.paymentProvider === 'paystack' && (
-            <>
-              <div className="form-group">
-                <label htmlFor="secretKey">Secret Key</label>
-                <input
-                  type="password"
-                  id="secretKey"
-                  placeholder="sk_live_..."
-                  value={showSecretKey ? pricing.paystackSecretKey : ''}
-                  onChange={(e) => setPricing({ ...pricing, paystackSecretKey: e.target.value })}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}
-                />
-                <div className="form-hint-row">
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={showSecretKey}
-                      onChange={(e) => setShowSecretKey(e.target.checked)}
-                    />
-                    Show secret key
-                  </label>
-                </div>
-                <p className="form-hint">Your Paystack secret key from the Paystack dashboard.</p>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="publicKey">Public Key</label>
-                <input
-                  type="text"
-                  id="publicKey"
-                  placeholder="pk_live_..."
-                  value={pricing.paystackPublicKey}
-                  onChange={(e) => setPricing({ ...pricing, paystackPublicKey: e.target.value })}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}
-                />
-                <p className="form-hint">Your Paystack public key from the Paystack dashboard.</p>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="webhookSecret">Webhook Secret</label>
-                <input
-                  type="password"
-                  id="webhookSecret"
-                  placeholder="whsec_..."
-                  value={pricing.paystackWebhookSecret}
-                  onChange={(e) => setPricing({ ...pricing, paystackWebhookSecret: e.target.value })}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}
-                />
-                <p className="form-hint">Webhook secret for verifying Paystack payment callbacks.</p>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="form-actions">
-          <button className="btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save Payment Settings"}
-          </button>
-        </div>
-
-        {pricing.paymentProvider !== 'paystack' && (
-          <div className="admin-message error" style={{ marginTop: '16px' }}>
-            ⚠️ Payment provider is not configured. Paid tokens cannot be created until a provider is set up. Admins can still create free tokens.
-          </div>
-        )}
-      </section>
-
-      {/* Free Token Creation */}
-      <section className="admin-section">
-        <h2>Free Token Creation (Admin Only)</h2>
-        <p className="section-help">
-          Admins can generate tokens at no cost for testing, partnerships, or giveaways.
-          These tokens use the same token settings (uses, expiry) but record no payment.
-        </p>
-        <Link href="/admin/tokens" className="btn-secondary">
-          Go to Token Management →
+        <Link href="/admin/payment-settings" className="btn-secondary">
+          Open Payment Settings →
         </Link>
       </section>
 
-      {/* Config display */}
       <section className="admin-section">
         <h2>Current Configuration</h2>
         <div className="config-display">
           <div className="config-row">
             <span>Price</span>
-            <strong>{formatCurrency(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency)}</strong>
+            <strong>
+              {formatMinorUnits(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency)}
+            </strong>
           </div>
           <div className="config-row">
             <span>Generations per token</span>
-            <strong>{getUsesDisplay()}</strong>
+            <strong>{usesDisplay}</strong>
           </div>
           <div className="config-row">
             <span>Expiry</span>
             <strong>{pricing.purchaseTokenExpiryDays} days</strong>
           </div>
           <div className="config-row">
-            <span>Payment provider</span>
-            <strong>{pricing.paymentProvider === 'paystack' ? 'Paystack' : 'None'}</strong>
-          </div>
-          <div className="config-row">
             <span>Cost per generation</span>
-            <strong>{getCostPerGeneration()}</strong>
+            <strong>{costPerGeneration()}</strong>
           </div>
         </div>
       </section>
@@ -353,10 +262,19 @@ export default function AdminPricingPage() {
           width: auto;
           min-width: 0;
         }
-        .form-hint-row {
+        .uses-row {
           display: flex;
           align-items: center;
-          margin-top: 8px;
+          gap: 8px;
+        }
+        .uses-row input {
+          flex: 1;
+          min-width: 0;
+        }
+        .uses-hint {
+          font-size: 13px;
+          color: var(--text-muted);
+          white-space: nowrap;
         }
         @media (max-width: 640px) {
           .currency-input-wrapper select {

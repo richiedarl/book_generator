@@ -1,17 +1,21 @@
 /**
- * Admin Token Management — list, create, and delete access tokens.
- * Auth is handled by the parent admin layout.
+ * Admin Token Management — list, issue, and revoke access tokens.
+ *
+ * Tokens are issued automatically when an administrator confirms a manual
+ * payment. This screen covers the rest of the lifecycle: issuing a token by
+ * hand and revoking one.
  */
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { formatDate } from "@/lib/format";
 
 interface AccessTokenInfo {
   id: string;
   token: string;
-  type: 'purchase' | 'email';
+  type: "purchase" | "email";
   email: string | null;
   max_uses: number;
   used_count: number;
@@ -20,165 +24,106 @@ interface AccessTokenInfo {
 }
 
 interface PricingConfig {
-  purchaseTokenPriceCents: number;
-  purchaseTokenCurrency: 'ngn' | 'usd';
   purchaseTokenUses: number;
   purchaseTokenExpiryDays: number;
 }
 
+const UNLIMITED_USES = 999999;
+
 export default function AdminTokensPage() {
   const [tokens, setTokens] = useState<AccessTokenInfo[]>([]);
   const [pricing, setPricing] = useState<PricingConfig>({
-    purchaseTokenPriceCents: 4900,
-    purchaseTokenCurrency: 'ngn',
     purchaseTokenUses: 20,
     purchaseTokenExpiryDays: 30,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  // Token creation modal
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [tokenEmail, setTokenEmail] = useState("");
-  const [freeToken, setFreeToken] = useState(false);
-  const [tokenCreating, setTokenCreating] = useState(false);
-  const [createdToken, setCreatedToken] = useState("");
+  const [isIssuing, setIsIssuing] = useState(false);
+  const [issuedToken, setIssuedToken] = useState("");
 
-  useEffect(() => {
-    loadTokens();
-    loadPricing();
-  }, []);
-
-  const loadTokens = async () => {
+  const loadTokens = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
       const response = await fetch("/api/tokens/purchase");
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load tokens");
-      }
-
+      if (!response.ok) throw new Error(data.error || "Failed to load tokens");
       setTokens(data.tokens || []);
     } catch (err: any) {
       setError(err.message || "Failed to load tokens");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loadPricing = async () => {
-    try {
-      const response = await fetch("/api/admin/pricing");
-      const data = await response.json();
-      if (response.ok) {
-        setPricing(data.pricing);
-      }
-    } catch (err) {
-      console.error("Failed to load pricing:", err);
-    }
-  };
+  useEffect(() => {
+    loadTokens();
+    fetch("/api/admin/pricing")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.pricing) setPricing(data.pricing);
+      })
+      .catch(() => {});
+  }, [loadTokens]);
 
-  const formatCurrency = (cents: number, currency: 'ngn' | 'usd') => {
-    const amount = cents / 100;
-    if (currency === 'ngn') {
-      return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
-    }
-    return `$${amount.toFixed(2)}`;
-  };
+  const usesPerToken =
+    pricing.purchaseTokenUses <= 0 ? "Unlimited" : String(pricing.purchaseTokenUses);
+  const usesPerTokenLabel =
+    usesPerToken === "Unlimited"
+      ? "unlimited generations"
+      : `${usesPerToken} generation${pricing.purchaseTokenUses === 1 ? "" : "s"}`;
 
-  const getPriceLabel = () => {
-    return formatCurrency(pricing.purchaseTokenPriceCents, pricing.purchaseTokenCurrency);
-  };
-
-  const getUsesDisplay = (max: number, used: number) => {
-    if (max >= 999999) return '∞ Unlimited';
-    return `${max - used} / ${max}`;
-  };
-
-  const handleCreateToken = async () => {
-    setTokenCreating(true);
+  const issueToken = async () => {
+    setIsIssuing(true);
     setError("");
-    setCreatedToken("");
+    setSuccess("");
+    setIssuedToken("");
 
     try {
       const response = await fetch("/api/tokens/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userEmail: tokenEmail || undefined,
-          free: freeToken,
-        }),
+        body: JSON.stringify({ userEmail: tokenEmail.trim() || undefined }),
       });
-
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to issue token");
 
-      if (!response.ok) {
-        if (response.status === 402) {
-          throw new Error(data.error || "Payment provider not configured");
-        }
-        throw new Error(data.error || "Failed to create token");
-      }
-
-      setCreatedToken(data.token);
-
-      let suffix = "";
-      if (data.infiniteUses) {
-        suffix = "Unlimited generations";
-      } else {
-        suffix = `${data.usesRemaining} uses remaining`;
-      }
-
-      if (data.expiresAt) {
-        suffix += `, expires ${new Date(data.expiresAt).toLocaleString()}`;
-      }
-
-      if (data.free) {
-        setSuccess(`Free token created — ${suffix}`);
-      } else {
-        setSuccess(`Token created (${getPriceLabel()}) — ${suffix}`);
-      }
-
+      setIssuedToken(data.token);
+      const usesLabel = data.infiniteUses
+        ? "unlimited generations"
+        : `${data.usesRemaining} generations`;
+      const expiryLabel = data.expiresAt
+        ? `, expires ${new Date(data.expiresAt).toLocaleString()}`
+        : "";
+      setSuccess(`Token issued — ${usesLabel}${expiryLabel}.`);
       await loadTokens();
     } catch (err: any) {
-      setError(err.message || "Failed to create token");
+      setError(err.message || "Failed to issue token");
     } finally {
-      setTokenCreating(false);
+      setIsIssuing(false);
     }
   };
 
-  const handleDeleteToken = async (id: string) => {
-    if (!confirm("Delete this token? This cannot be undone.")) return;
+  const revokeToken = async (id: string) => {
+    if (!window.confirm("Revoke this token? This cannot be undone.")) return;
 
     try {
-      const response = await fetch(`/api/tokens/purchase?id=${id}`, {
-        method: "DELETE",
-      });
-
+      const response = await fetch(`/api/tokens/purchase?id=${id}`, { method: "DELETE" });
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to revoke token");
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to delete token");
-      }
-
-      setSuccess("Token deleted");
+      setSuccess("Token revoked.");
       await loadTokens();
     } catch (err: any) {
-      setError(err.message || "Failed to delete token");
+      setError(err.message || "Failed to revoke token");
     }
   };
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  const usesDisplay = (max: number, used: number) =>
+    max >= UNLIMITED_USES ? "∞ Unlimited" : `${max - used} / ${max}`;
 
   if (isLoading) {
     return (
@@ -192,35 +137,44 @@ export default function AdminTokensPage() {
     <div className="admin-page">
       <div className="admin-header">
         <h1>Token Management</h1>
-        <p>Create and manage access tokens for book generation.</p>
+        <p>Tokens grant book generations. Most are issued when a payment is confirmed.</p>
       </div>
 
       {error && <div className="admin-message error">{error}</div>}
       {success && <div className="admin-message success">{success}</div>}
 
       <section className="admin-section">
-        <h2>Purchased Tokens</h2>
+        <h2>Issued Tokens</h2>
         <p className="section-help">
-          Each paid purchase records a payment in the Payments section.
-          Admins can create tokens for free using the "Free Token" checkbox below.
-          Current price: {getPriceLabel()} ({pricing.purchaseTokenCurrency === 'ngn' ? '₦ NGN' : '$ USD'})
+          A confirmed manual payment issues a token automatically and emails it to the user.
+          Issue one here only for support cases or arrangements outside the normal payment flow.
           <br />
-          Current generation limit per token: {pricing.purchaseTokenUses <= 0 ? '∞ Unlimited' : pricing.purchaseTokenUses} (set in <Link href="/admin/pricing" style={{ color: 'var(--accent-olive)' }}>Pricing</Link>)
+          Each token grants {usesPerTokenLabel} and
+          expires after {pricing.purchaseTokenExpiryDays} days (set in{" "}
+          <Link href="/admin/pricing" className="inline-link">Pricing</Link>).
         </p>
 
         <div className="section-actions">
           <button
-            onClick={() => { setShowTokenModal(true); setCreatedToken(""); setTokenEmail(""); setFreeToken(false); setError(""); setSuccess(""); }}
+            type="button"
+            onClick={() => {
+              setShowTokenModal(true);
+              setIssuedToken("");
+              setTokenEmail("");
+              setError("");
+              setSuccess("");
+            }}
             className="btn btn-primary"
           >
-            Create New Token ({getPriceLabel()})
+            Issue a Token
           </button>
-          {createdToken && (
+          {issuedToken && (
             <div className="token-result">
-              <code>{createdToken}</code>
+              <code>{issuedToken}</code>
               <button
+                type="button"
                 className="btn-copy"
-                onClick={() => navigator.clipboard.writeText(createdToken)}
+                onClick={() => navigator.clipboard.writeText(issuedToken)}
                 title="Copy token"
               >
                 Copy
@@ -230,7 +184,7 @@ export default function AdminTokensPage() {
         </div>
 
         {tokens.length === 0 ? (
-          <div className="empty-state">No tokens created</div>
+          <div className="empty-state">No tokens issued yet</div>
         ) : (
           <div className="table-container">
             <table className="data-table">
@@ -252,21 +206,22 @@ export default function AdminTokensPage() {
                       <code>{token.token.substring(0, 20)}…</code>
                     </td>
                     <td>
-                      <span className={`role-badge ${token.type === 'email' ? 'user' : 'admin'}`}>
-                        {token.type === 'email' ? 'Email' : 'Purchase'}
+                      <span className={`role-badge ${token.type === "email" ? "user" : "admin"}`}>
+                        {token.type === "email" ? "Email" : "Payment"}
                       </span>
                     </td>
-                    <td>{token.email || "—"}</td>
-                    <td>{getUsesDisplay(token.max_uses, token.used_count)}</td>
+                    <td className="cell-wrap">{token.email || "—"}</td>
+                    <td>{usesDisplay(token.max_uses, token.used_count)}</td>
                     <td>{token.expires_at ? formatDate(token.expires_at) : "No expiry"}</td>
                     <td>{formatDate(token.created_at)}</td>
                     <td>
                       <button
+                        type="button"
                         className="btn-icon delete"
-                        onClick={() => handleDeleteToken(token.id)}
-                        title="Delete token"
+                        onClick={() => revokeToken(token.id)}
+                        title="Revoke token"
                       >
-                        🗑️
+                        Revoke
                       </button>
                     </td>
                   </tr>
@@ -275,64 +230,63 @@ export default function AdminTokensPage() {
             </table>
           </div>
         )}
+      </section>
 
-        {/* Create Token Modal */}
-        {showTokenModal && (
-          <div className="modal-overlay" onClick={() => setShowTokenModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <h3>Create New Token</h3>
+      {showTokenModal && (
+        <div className="modal-overlay" onClick={() => !isIssuing && setShowTokenModal(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Issue a Token</h3>
 
-              {error && <div className="modal-error">{error}</div>}
+            <div className="form-group">
+              <label htmlFor="tokenEmail">User Email (optional)</label>
+              <input
+                id="tokenEmail"
+                type="email"
+                placeholder="user@example.com"
+                value={tokenEmail}
+                onChange={(event) => setTokenEmail(event.target.value)}
+                disabled={isIssuing}
+              />
+              <p className="form-hint">
+                Recording the email keeps the token traceable to a person.
+              </p>
+            </div>
 
-              <div className="form-group">
-                <label htmlFor="tokenEmail">User Email (optional)</label>
-                <input
-                  type="email"
-                  id="tokenEmail"
-                  placeholder="user@example.com"
-                  value={tokenEmail}
-                  onChange={(e) => setTokenEmail(e.target.value)}
-                  disabled={tokenCreating}
-                />
-                <p className="form-hint">Leave blank to create a generic token.</p>
-              </div>
+            <p className="modal-summary">
+              Grants <strong>{usesPerToken}</strong> generations, valid for{" "}
+              <strong>{pricing.purchaseTokenExpiryDays} days</strong>.
+            </p>
 
-              <div className="form-group checkbox-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={freeToken}
-                    onChange={(e) => setFreeToken(e.target.checked)}
-                  />
-                  <span>Free Token (Admin Only)</span>
-                </label>
-                <p className="form-hint">
-                  {freeToken
-                    ? `Create a ${getPriceLabel()} token at no cost (no payment recorded).`
-                    : `Create a ${getPriceLabel()} token. A payment will be recorded.`}
-                </p>
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  className="btn-secondary"
-                  onClick={() => setShowTokenModal(false)}
-                  disabled={tokenCreating}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleCreateToken}
-                  disabled={tokenCreating}
-                >
-                  {tokenCreating ? "Creating…" : freeToken ? "Create Free Token" : `Create Paid Token (${getPriceLabel()})`}
-                </button>
-              </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowTokenModal(false)}
+                disabled={isIssuing}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={issueToken} disabled={isIssuing}>
+                {isIssuing ? "Issuing…" : "Issue Token"}
+              </button>
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
+
+      <style jsx>{`
+        .inline-link {
+          color: var(--accent-olive);
+        }
+        .cell-wrap {
+          overflow-wrap: anywhere;
+        }
+        .modal-summary {
+          margin: 4px 0 0;
+          font-size: 13px;
+          color: var(--ink-soft);
+        }
+      `}</style>
     </div>
   );
 }

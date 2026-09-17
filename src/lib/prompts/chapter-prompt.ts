@@ -1,9 +1,10 @@
-import { BookConcept } from '../types';
+import { BookConcept, BookConfig } from '../types';
 import { MASTER_SYSTEM } from './master-system';
 
 export function getChapterPrompt(
   concept: BookConcept,
-  chapterIndex: number
+  chapterIndex: number,
+  config?: BookConfig
 ): { system: string; user: string } {
   const chapter = concept.chapters[chapterIndex];
 
@@ -15,6 +16,9 @@ export function getChapterPrompt(
   const userPrompt = `Book: "${concept.title}" — ${concept.subtitle}
 Reader: ${concept.targetReader}
 Book's promise: ${concept.promise}
+Desired length: ${config?.desiredLength || 'Use a substantial, appropriately paced chapter.'}
+Themes to carry through the manuscript: ${config?.themes || 'Choose themes that fit the book promise.'}
+Chapter subtitles: ${config?.chapterSubtitles ? 'Include a concise subtitle for this chapter.' : 'Do not add a chapter subtitle.'}
 
 ${priorTitles
     ? 'Chapters already covered earlier in the book (avoid repeating their lessons or examples):\n' + priorTitles

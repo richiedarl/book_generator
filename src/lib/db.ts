@@ -99,11 +99,19 @@ export function initializeDatabase() {
     db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('purchase_token_currency', 'ngn');
   }
 
-  const paystackKeyConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_secret_key');
-  if (!paystackKeyConfig) {
-    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_secret_key', '');
-    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_public_key', '');
-    db.prepare('INSERT INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_webhook_secret', '');
+  // Seed the business account users pay into (editable later from the admin panel)
+  const paymentBusiness = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('manual_payment_business_name');
+  if (!paymentBusiness) {
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_business_name', 'SALESECO AFRICA LIMITED');
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_account_number', '6611477366');
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_bank_name', 'Moniepoint');
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_provider_name', 'Manual bank transfer');
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run(
+      'manual_payment_instructions',
+      'Make the required transfer to the account below, then submit your payment reference for admin confirmation.'
+    );
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_currency', 'ngn');
+    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('manual_payment_amount', String(PURCHASE_TOKEN_PRICE_CENTS / 100));
   }
 
   const usesConfig = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses');
@@ -141,27 +149,38 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tokens_expires ON access_tokens(expires_at);
   `);
 
-  // Payments table — tracks revenue from purchase token creation
+  // Payments table — tracks both automated and manual (bank transfer) payments.
+  // A pending manual payment has no token yet: token_id is filled in only after
+  // an admin confirms the transfer and the token is issued.
   db.exec(`
     CREATE TABLE IF NOT EXISTS payments (
       id TEXT PRIMARY KEY,
-      token_id TEXT NOT NULL,
+      token_id TEXT,
       user_id TEXT,
+      payer_name TEXT,
       email TEXT,
       amount REAL NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'usd',
+      currency TEXT NOT NULL DEFAULT 'ngn',
       status TEXT NOT NULL DEFAULT 'completed',
       provider TEXT,
       provider_payment_id TEXT,
+      reference TEXT,
+      notes TEXT,
+      confirmed_at INTEGER,
+      confirmed_by TEXT,
+      token_delivery_status TEXT,
       created_at INTEGER NOT NULL
     )
   `);
+
+  migratePaymentsTable();
 
   // Payment indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_payments_token ON payments(token_id);
     CREATE INDEX IF NOT EXISTS idx_payments_email ON payments(email);
     CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at);
+    CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
   `);
 
   // Initialize default auth config
@@ -180,6 +199,81 @@ export function initializeDatabase() {
 }
 
 /**
+ * Bring an older `payments` table up to the manual-payment schema.
+ * Older installs declared `token_id TEXT NOT NULL` and are missing the
+ * confirmation / delivery columns, which makes pending manual payments
+ * impossible to insert. SQLite cannot relax NOT NULL with ALTER, so when
+ * that is detected the table is rebuilt in place with its data preserved.
+ */
+function migratePaymentsTable() {
+  const columns = db.prepare('PRAGMA table_info(payments)').all() as {
+    name: string;
+    notnull: number;
+  }[];
+
+  if (columns.length === 0) return;
+
+  const tokenIdColumn = columns.find((column) => column.name === 'token_id');
+  const needsRebuild = !!tokenIdColumn && tokenIdColumn.notnull === 1;
+
+  if (needsRebuild) {
+    db.exec('ALTER TABLE payments RENAME TO payments_legacy');
+    db.exec(`
+      CREATE TABLE payments (
+        id TEXT PRIMARY KEY,
+        token_id TEXT,
+        user_id TEXT,
+        payer_name TEXT,
+        email TEXT,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'ngn',
+        status TEXT NOT NULL DEFAULT 'completed',
+        provider TEXT,
+        provider_payment_id TEXT,
+        reference TEXT,
+        notes TEXT,
+        confirmed_at INTEGER,
+        confirmed_by TEXT,
+        token_delivery_status TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    db.exec(`
+      INSERT INTO payments (
+        id, token_id, user_id, payer_name, email, amount, currency, status,
+        provider, provider_payment_id, created_at
+      )
+      SELECT
+        id, token_id, user_id, NULL, email, amount, currency, status,
+        provider, provider_payment_id, created_at
+      FROM payments_legacy
+    `);
+    db.exec('DROP TABLE payments_legacy');
+    console.log('✅ Payments table migrated to manual-payment schema');
+  }
+
+  // Add any columns introduced after the table was first created.
+  const addedColumns: Array<{ name: string; definition: string }> = [
+    { name: 'reference', definition: 'TEXT' },
+    { name: 'payer_name', definition: 'TEXT' },
+    { name: 'notes', definition: 'TEXT' },
+    { name: 'confirmed_at', definition: 'INTEGER' },
+    { name: 'confirmed_by', definition: 'TEXT' },
+    { name: 'token_delivery_status', definition: 'TEXT' },
+  ];
+
+  const existingNames = new Set(
+    (db.prepare('PRAGMA table_info(payments)').all() as { name: string }[]).map((c) => c.name)
+  );
+
+  for (const column of addedColumns) {
+    if (!existingNames.has(column.name)) {
+      db.exec(`ALTER TABLE payments ADD COLUMN ${column.name} ${column.definition}`);
+    }
+  }
+}
+
+/**
  * === Payment Tracking ===
  * The platform receives payments through token purchases.
  * When a purchase token is created, a corresponding payment record
@@ -189,14 +283,20 @@ export function initializeDatabase() {
 
 export interface Payment {
   id: string;
-  token_id: string;
+  token_id: string | null;
   user_id: string | null;
+  payer_name: string | null;
   email: string | null;
   amount: number;
   currency: string;
-  status: 'completed' | 'pending' | 'failed';
+  status: 'completed' | 'pending' | 'failed' | 'rejected';
   provider: string | null;
   provider_payment_id: string | null;
+  reference: string | null;
+  notes: string | null;
+  confirmed_at: number | null;
+  confirmed_by: string | null;
+  token_delivery_status: string | null;
   created_at: number;
 }
 
@@ -220,11 +320,195 @@ export function createPayment(
   return db.prepare('SELECT * FROM payments WHERE id = ?').get(id) as Payment;
 }
 
+export interface ManualPaymentConfig {
+  businessName: string;
+  accountNumber: string;
+  bankName: string;
+  providerName: string;
+  instructions: string;
+  /** Amount the user must transfer, in the major currency unit (e.g. 4900 NGN). */
+  amount: number;
+  currency: 'ngn' | 'usd';
+}
+
+const DEFAULT_PAYMENT_CONFIG: ManualPaymentConfig = {
+  businessName: 'SALESECO AFRICA LIMITED',
+  accountNumber: '6611477366',
+  bankName: 'Moniepoint',
+  providerName: 'Manual bank transfer',
+  instructions: 'Make the required transfer to the account below, then submit your payment reference for admin confirmation.',
+  amount: PURCHASE_TOKEN_PRICE_CENTS / 100,
+  currency: 'ngn',
+};
+
+function getConfigValue(key: string, fallback = ''): string {
+  const row = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? fallback;
+}
+
+function setConfigValue(key: string, value: string) {
+  db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run(key, value);
+}
+
+export function getManualPaymentConfig(): ManualPaymentConfig {
+  const currency = getConfigValue('manual_payment_currency', DEFAULT_PAYMENT_CONFIG.currency);
+
+  return {
+    businessName: getConfigValue('manual_payment_business_name', DEFAULT_PAYMENT_CONFIG.businessName),
+    accountNumber: getConfigValue('manual_payment_account_number', DEFAULT_PAYMENT_CONFIG.accountNumber),
+    bankName: getConfigValue('manual_payment_bank_name', DEFAULT_PAYMENT_CONFIG.bankName),
+    providerName: getConfigValue('manual_payment_provider_name', DEFAULT_PAYMENT_CONFIG.providerName),
+    instructions: getConfigValue('manual_payment_instructions', DEFAULT_PAYMENT_CONFIG.instructions),
+    amount: parseFloat(getConfigValue('manual_payment_amount', String(DEFAULT_PAYMENT_CONFIG.amount))),
+    currency: currency === 'usd' ? 'usd' : 'ngn',
+  };
+}
+
+export function setManualPaymentConfig(config: Partial<ManualPaymentConfig>) {
+  if (config.businessName !== undefined) setConfigValue('manual_payment_business_name', config.businessName);
+  if (config.accountNumber !== undefined) setConfigValue('manual_payment_account_number', config.accountNumber);
+  if (config.bankName !== undefined) setConfigValue('manual_payment_bank_name', config.bankName);
+  if (config.providerName !== undefined) setConfigValue('manual_payment_provider_name', config.providerName);
+  if (config.instructions !== undefined) setConfigValue('manual_payment_instructions', config.instructions);
+  if (config.amount !== undefined) setConfigValue('manual_payment_amount', String(config.amount));
+  if (config.currency !== undefined) setConfigValue('manual_payment_currency', config.currency);
+}
+
+/**
+ * The business account details users pay into. These live in the database so
+ * an administrator can change them from the admin panel without a code change.
+ * The defaults below are only used on a brand new install.
+ */
+export const PAYMENT_CONFIG_FALLBACK: ManualPaymentConfig = DEFAULT_PAYMENT_CONFIG;
+
+export function createPendingManualPayment(
+  userId: string | null,
+  payerName: string,
+  email: string,
+  amount: number,
+  currency: string,
+  reference: string | null,
+  notes: string | null
+): Payment {
+  const id = uuidv4();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO payments (
+      id, token_id, user_id, payer_name, email, amount, currency, status, provider,
+      provider_payment_id, reference, notes, token_delivery_status, created_at
+    )
+    VALUES (?, NULL, ?, ?, ?, ?, ?, 'pending', 'manual', NULL, ?, ?, 'pending_confirmation', ?)
+  `).run(id, userId, payerName, email.toLowerCase(), amount, currency, reference, notes, now);
+
+  return db.prepare('SELECT * FROM payments WHERE id = ?').get(id) as Payment;
+}
+
+export function getPaymentsForUser(userId: string | null, email: string): Payment[] {
+  return db.prepare(`
+    SELECT * FROM payments
+    WHERE (user_id IS NOT NULL AND user_id = ?) OR lower(email) = lower(?)
+    ORDER BY created_at DESC
+  `).all(userId, email) as Payment[];
+}
+
+export function getPaymentById(id: string): Payment | undefined {
+  return db.prepare('SELECT * FROM payments WHERE id = ?').get(id) as Payment | undefined;
+}
+
+export function updatePaymentStatus(
+  id: string,
+  status: 'completed' | 'pending' | 'failed' | 'rejected',
+  updates: Partial<Pick<Payment, 'token_id' | 'confirmed_at' | 'confirmed_by' | 'token_delivery_status' | 'notes'>> = {}
+): Payment | undefined {
+  const fields = ['status = ?'];
+  const values: any[] = [status];
+
+  for (const [key, value] of Object.entries(updates)) {
+    fields.push(`${key} = ?`);
+    values.push(value);
+  }
+
+  values.push(id);
+  db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  return getPaymentById(id);
+}
+
 /** Fetch all payment records, newest first. */
 export function getAllPayments(): Payment[] {
   return db.prepare(`
     SELECT * FROM payments ORDER BY created_at DESC
   `).all() as Payment[];
+}
+
+/** Payment submissions awaiting an admin decision, oldest first. */
+export function getPendingPayments(): Payment[] {
+  return db.prepare(`
+    SELECT * FROM payments WHERE status = 'pending' ORDER BY created_at ASC
+  `).all() as Payment[];
+}
+
+/** Link an issued token to its payment and mark the payment complete. */
+export function confirmPayment(
+  paymentId: string,
+  tokenId: string,
+  adminId: string,
+  adminName: string
+): Payment | undefined {
+  return updatePaymentStatus(paymentId, 'completed', {
+    token_id: tokenId,
+    confirmed_at: Date.now(),
+    confirmed_by: `${adminName} <${adminId}>`,
+    token_delivery_status: 'pending_delivery',
+  });
+}
+
+/** Reject a submission: the transfer could not be verified. */
+export function rejectPayment(paymentId: string, adminId: string, adminName: string): Payment | undefined {
+  return updatePaymentStatus(paymentId, 'rejected', {
+    confirmed_at: Date.now(),
+    confirmed_by: `${adminName} <${adminId}>`,
+    token_delivery_status: 'not_applicable',
+  });
+}
+
+/** Where a payment's token delivery currently stands. */
+export type TokenDeliveryStatus =
+  | 'pending_confirmation'
+  | 'pending_delivery'
+  | 'delivered'
+  | 'failed'
+  | 'manual'
+  | 'not_applicable';
+
+/** Record the outcome of attempting to deliver a token by email. */
+export function setTokenDeliveryStatus(
+  paymentId: string,
+  status: TokenDeliveryStatus,
+  note?: string
+): Payment | undefined {
+  const existing = getPaymentById(paymentId);
+  if (!existing) return undefined;
+
+  const notes = note ? [existing.notes, note].filter(Boolean).join('\n') : existing.notes;
+  return updatePaymentStatus(paymentId, existing.status, {
+    token_delivery_status: status,
+    notes,
+  });
+}
+
+/** Find the payment row that owns a given access token. */
+export function getPaymentByTokenId(tokenId: string): Payment | undefined {
+  return db.prepare('SELECT * FROM payments WHERE token_id = ?').get(tokenId) as Payment | undefined;
+}
+
+/** True when this user/email already has a submission awaiting confirmation. */
+export function hasPendingPayment(email: string): boolean {
+  const row = db.prepare(`
+    SELECT COUNT(*) as count FROM payments
+    WHERE lower(email) = lower(?) AND status = 'pending'
+  `).get(email) as { count: number };
+
+  return row.count > 0;
 }
 
 // Create default admin if none exists
@@ -495,10 +779,6 @@ export interface PricingConfig {
   purchaseTokenCurrency: 'ngn' | 'usd';
   purchaseTokenUses: number; // 0 or negative means infinite
   purchaseTokenExpiryDays: number;
-  paystackSecretKey: string;
-  paystackPublicKey: string;
-  paystackWebhookSecret: string;
-  paymentProvider: 'paystack' | 'none';
 }
 
 export function getPricingConfig(): PricingConfig {
@@ -506,20 +786,12 @@ export function getPricingConfig(): PricingConfig {
   const currency = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_currency') as { value: string } | undefined;
   const uses = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_uses') as { value: string } | undefined;
   const expiry = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('purchase_token_expiry_days') as { value: string } | undefined;
-  const sk = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_secret_key') as { value: string } | undefined;
-  const pk = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_public_key') as { value: string } | undefined;
-  const wh = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('paystack_webhook_secret') as { value: string } | undefined;
-  const provider = db.prepare('SELECT value FROM pricing_config WHERE key = ?').get('payment_provider') as { value: string } | undefined;
 
   return {
     purchaseTokenPriceCents: price ? parseInt(price.value, 10) : PURCHASE_TOKEN_PRICE_CENTS,
     purchaseTokenCurrency: (currency?.value as 'ngn' | 'usd') || 'ngn',
     purchaseTokenUses: uses ? parseInt(uses.value, 10) : DEFAULT_PURCHASE_USES,
     purchaseTokenExpiryDays: expiry ? parseInt(expiry.value, 10) : DEFAULT_EXPIRY_DAYS,
-    paystackSecretKey: sk?.value || '',
-    paystackPublicKey: pk?.value || '',
-    paystackWebhookSecret: wh?.value || '',
-    paymentProvider: (provider?.value as 'paystack' | 'none') || 'none',
   };
 }
 
@@ -535,18 +807,6 @@ export function setPricingConfig(config: Partial<PricingConfig>) {
   }
   if (config.purchaseTokenExpiryDays !== undefined) {
     db.prepare('UPDATE pricing_config SET value = ? WHERE key = ?').run(String(config.purchaseTokenExpiryDays), 'purchase_token_expiry_days');
-  }
-  if (config.paystackSecretKey !== undefined) {
-    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_secret_key', config.paystackSecretKey);
-  }
-  if (config.paystackPublicKey !== undefined) {
-    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_public_key', config.paystackPublicKey);
-  }
-  if (config.paystackWebhookSecret !== undefined) {
-    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('paystack_webhook_secret', config.paystackWebhookSecret);
-  }
-  if (config.paymentProvider !== undefined) {
-    db.prepare('INSERT OR REPLACE INTO pricing_config (key, value) VALUES (?, ?)').run('payment_provider', config.paymentProvider);
   }
 }
 

@@ -28,9 +28,10 @@ interface User {
 }
 
 interface PaymentSummary {
-  payments: any[];
-  totalRevenue: number;
-  paymentCount: number;
+  pending: number;
+  confirmed: number;
+  rejected: number;
+  undeliveredTokens: number;
 }
 
 function formatDate(ts: number) {
@@ -39,14 +40,6 @@ function formatDate(ts: number) {
     month: "short",
     day: "numeric",
   });
-}
-
-function formatCurrency(cents: number, currency: string) {
-  const amount = cents / 100;
-  if (currency === 'ngn') {
-    return `₦${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
-  }
-  return `$${amount.toFixed(2)}`;
 }
 
 export default function AdminDashboardPage() {
@@ -81,9 +74,10 @@ export default function AdminDashboardPage() {
       setTokens(tData.tokens || []);
       setUsers(uData.users || []);
       setPayments({
-        payments: pData.payments || [],
-        totalRevenue: pData.totalRevenue || 0,
-        paymentCount: pData.paymentCount || 0,
+        pending: pData.summary?.pending || 0,
+        confirmed: pData.summary?.confirmed || 0,
+        rejected: pData.summary?.rejected || 0,
+        undeliveredTokens: pData.summary?.undeliveredTokens || 0,
       });
     } catch (err: any) {
       setError(err.message || "Failed to load dashboard data");
@@ -105,15 +99,10 @@ export default function AdminDashboardPage() {
     return usesLeft > 0 && notExpired;
   });
 
-  const ngnRevenue = payments?.payments
-    .filter((p: any) => p.currency === 'ngn' && p.status === 'completed')
-    .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
-  const usdRevenue = payments?.payments
-    .filter((p: any) => p.currency === 'usd' && p.status === 'completed')
-    .reduce((sum: number, p: any) => sum + p.amount, 0) || 0;
-
-  const ngnCount = payments?.payments.filter((p: any) => p.currency === 'ngn').length || 0;
-  const usdCount = payments?.payments.filter((p: any) => p.currency === 'usd').length || 0;
+  const pendingPayments = payments?.pending || 0;
+  const confirmedPayments = payments?.confirmed || 0;
+  const rejectedPayments = payments?.rejected || 0;
+  const undeliveredTokens = payments?.undeliveredTokens || 0;
 
   const tokenTypeCount = (type: string) => tokens.filter(t => t.type === type).length;
   const infiniteTokens = tokens.filter(t => t.max_uses >= 999999).length;
@@ -131,15 +120,18 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="stat-card">
-          <div className="stat-value">{formatCurrency(ngnRevenue, 'ngn')}</div>
-          <div className="stat-label">Revenue Earned (NGN)</div>
-          <div className="stat-sub">{ngnCount} payment{ngnCount === 1 ? '' : 's'}</div>
+          <div className="stat-value">{pendingPayments}</div>
+          <div className="stat-label">Payments to Confirm</div>
+          <div className="stat-sub">awaiting admin review</div>
         </div>
 
         <div className="stat-card">
-          <div className="stat-value">{formatCurrency(usdRevenue, 'usd')}</div>
-          <div className="stat-label">Revenue Earned (USD)</div>
-          <div className="stat-sub">{usdCount} payment{usdCount === 1 ? '' : 's'}</div>
+          <div className="stat-value">{confirmedPayments}</div>
+          <div className="stat-label">Confirmed Payments</div>
+          <div className="stat-sub">
+            {undeliveredTokens} token{undeliveredTokens === 1 ? '' : 's'} not delivered
+            {rejectedPayments > 0 ? ` · ${rejectedPayments} rejected` : ''}
+          </div>
         </div>
 
         <div className="stat-card">
@@ -171,8 +163,13 @@ export default function AdminDashboardPage() {
           </Link>
           <Link href="/admin/payments" className="quick-card">
             <span className="quick-icon">💰</span>
-            <span className="quick-title">View Payments</span>
-            <span className="quick-desc">Review all token purchase payments</span>
+            <span className="quick-title">Review Payments</span>
+            <span className="quick-desc">Confirm bank transfers and deliver tokens</span>
+          </Link>
+          <Link href="/admin/payment-settings" className="quick-card">
+            <span className="quick-icon">⚙</span>
+            <span className="quick-title">Payment Settings</span>
+            <span className="quick-desc">Edit the business account users pay into</span>
           </Link>
           <Link href="/admin/pricing" className="quick-card">
             <span className="quick-icon">💲</span>

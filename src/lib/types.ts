@@ -66,6 +66,8 @@ export interface BookConfig {
   writingStyle: string;
   desiredLength: string;
   numberOfChapters: number;
+  themes?: string;
+  chapterSubtitles?: boolean;
   chapterTitles?: string[];
   educationalGoals: string;
   emotionalGoals: string;
@@ -82,6 +84,7 @@ export interface BookConfig {
     provider: "none" | "gemini" | "nano-banana";
   };
   numberOfImages: number;
+  imagesPerChapter?: number;
   translateTo?: string[];
   // Attachments
   attachments?: Attachment[];
